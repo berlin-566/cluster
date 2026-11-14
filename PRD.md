@@ -4,7 +4,7 @@
 
 ### 1. Vision and Objective
 
-The objective of cluster Distributed Mesh is to pool multiple ephemeral cloud notebook runtimes (Google Colab, Kaggle, and team member GPU instances) into an orchestrated, unified multi-GPU inference cluster.
+The objective of cluster Distributed Mesh is to pool multiple ephemeral cloud notebook runtimes (Google Colab, Kaggle, and team member GPU instances) into an orchestrated, unified multi-GPU inference cluster, accessible via both a streamlined CLI and a sleek, modern desktop application.
 
 Key targets:
 * Unified Multi-GPU Model Deployment: A single model (e.g. Qwen 2.5 14B/32B/72B, DeepSeek, or GLM) is downloaded once and cooperatively deployed across all 4+ GPUs simultaneously.
@@ -13,6 +13,7 @@ Key targets:
 * Interactive Multi-Provider Model Resolver: `cluster fetch <model>` searches across multiple registries (Ollama, Hugging Face Hub, GGUF publishers) and presents an interactive selection list before deploying.
 * Single-Command Notebook Orchestration: A Leader Notebook generates dedicated one-liner commands for all worker notebooks, admin control, and team members.
 * Resilient Hot-Reconnection: If a worker notebook disconnects due to Colab timeout, prompts are held in a queue while the Leader alerts the Admin with the exact command to re-paste in a fresh cell without restarting the cluster.
+* Matte-Black Native Desktop Application: A lightweight, developer-grade desktop interface inspired by Cortex.io aesthetics, featuring live cluster mesh topology graphs, node telemetry, model management, and dual Admin/Member operational modes.
 
 ### 2. Leader Notebook Orchestration Workflow
 
@@ -77,28 +78,44 @@ The entire cluster lifecycle is initialized and coordinated from a Primary Leade
     `[ALERT] notebook-2 disconnected. Run this one-liner in a fresh cell to restore cluster: <command>`
   * Once re-pasted, the worker rejoins, RPC reconnects, and queued generation resumes seamlessly without cluster restart.
 
-### 3. Architecture and Core Topology
+### 3. Desktop Application Architecture and Design System
 
-The system comprises three primary layers:
+The desktop application provides a visual command center for both cluster administrators and team members, pairing lightweight runtime performance with an enterprise developer experience inspired by Cortex.io.
 
-#### A. Leader Node (Coordinator & Primary GPU)
-* Ingress Gateway: Exposes public Cloudflare Tunnel serving both Admin management APIs and Member inference APIs.
-* Worker Registry: Tracks connected worker notebooks (`notebook-1`, `notebook-2`, etc.), active GPU hardware, VRAM headroom, and round-trip ping latency.
-* Multi-GPU Inference Engine:
-  * Orchestrates distributed layer placement across all connected RPC GPU nodes.
-  * Manages activation streaming and token decoding loop.
-* Fault Tolerance: Actively monitors worker health and manages prompt hold queues.
+#### 3.1 Design Language and Aesthetics
+* Color Palette:
+  * Dark Mode (Primary): Deep Matte Black (`#09090B`), Charcoal Surface Cards (`#141416`), Subtle Zinc Borders (`#27272A`), Crisp White Typography (`#FAFAFA`), and Muted Slate Accents (`#71717A`).
+  * Light Mode: Pure White Canvas (`#FFFFFF`), Soft Gray Cards (`#F4F4F5`), Crisp Charcoal Text (`#09090B`), Slate Borders (`#E4E4E7`).
+* Typography: High-legibility sans-serif for UI chrome paired with monospace data fonts for GPU metrics, token counters, and terminal logs.
+* Iconography: Strictly zero emojis. 100% clean, hand-crafted vector SVGs for all controls, status pills, and navigation icons.
+* Identity & Logo: Minimalist geometric cluster emblem consisting of interconnected vertices on a dark background, representing distributed computing nodes.
 
-#### B. Worker Nodes (Remote GPU Compute Shards)
-* Run on individual Colab or Kaggle instances.
-* Paste one-liner from the Leader board to join (`curl ... | bash -s -- --leader <url> --token <worker-token> --name notebook-X`).
-* Starts an optimized GPU RPC compute backend and connects back to the Leader.
-* Executes GPU matrix multiplications and attention operations for its assigned transformer layers.
+#### 3.2 Visual Layout and Hierarchy
+* Top Header Bar:
+  * Top Left: `cluster` wordmark, geometric SVG emblem, active model badge, and live cluster health pill (`HEALTHY`, `SYNCING`, `DEGRADED`).
+  * Center/Right: Live Mesh Topology Graph Widget:
+    * Visual node hub displaying the Leader notebook at center.
+    * Radiating dynamic links to active Worker notebooks (`notebook-1`, `notebook-2`, etc.) with throughput pulse animations indicating live token generation.
+    * Active team member connection count badge.
+  * Controls: Dual-mode toggle (Admin Mode vs User Mode) and Theme Switcher (Dark/Light).
+* Left Navigation Sidebar:
+  * Home / Dashboard: Quick telemetry overview, total cluster tokens/second gauge, aggregate VRAM utilization meter, and 1-click proxy start/stop button.
+  * Clusters Overview: Interactive node catalog. Clicking any notebook reveals hardware specs, allocated vs free VRAM, assigned transformer layers, GPU temperature, and round-trip ping.
+  * Models & Deployments: Searchable model browser with multi-provider integration (Ollama & HuggingFace), quantization inspector, one-click cluster deploy button, and active model switcher.
+  * Team & Traffic: Real-time table of 15-16 team members, active prompt queue depth, token usage statistics, and fair-share concurrency distribution.
+  * Settings & Tunnels: Cloudflare tunnel status, custom proxy port configuration, security tokens, and diagnostic log stream.
 
-#### C. Local Client & Developer Integration
-* Team members run `cluster connect <leader-url> --token <member-token>` on their laptops.
-* Local proxy binds to `127.0.0.1:11434`.
-* Any application (Cursor, VS Code Continue, Open WebUI, Chatbox, or Python SDK) interacts with the cluster as if it were a single ultra-fast local Ollama instance.
+#### 3.3 Dual-Mode Persona Experience
+* Admin Mode:
+  * Full cluster management capabilities.
+  * Model deployment and sharding orchestration.
+  * Worker eviction, reconnect command generator, and RPC health inspector.
+  * Raw diagnostic log terminal.
+* User / Member Mode:
+  * Clean, distraction-free interface for everyday inference.
+  * Built-in Interactive Chat Playground supporting streaming tokens, parameter adjustment (temperature, context length), and markdown rendering.
+  * Local Proxy Status (`http://127.0.0.1:11434`) with 1-click copy configs for Cursor, VS Code Continue, Open WebUI, and Python scripts.
+  * Live generation speed and latency scoreboard.
 
 ### 4. CLI Reference
 
@@ -114,11 +131,13 @@ The system comprises three primary layers:
 * `cluster chat [model]`: Interactive terminal chat streaming at multi-GPU speed.
 * `cluster proxy [--port 11434]`: Local reverse proxy for Cursor, VS Code, and Open WebUI.
 * `cluster status`: Check cluster connectivity and current loaded model.
+* `cluster version`: Check installed version and live update status against main branch.
 
 ### 5. Non-Functional Requirements
 
-* Memory Scaling: Linear VRAM pooling across 2 to 16+ GPU nodes.
+* Desktop Runtime Footprint: Under 45MB RAM overhead when idling; instant launch under 1.5 seconds.
 * Zero Firewall Config: Pure outbound HTTPS / Cloudflare tunnel connectivity on all nodes.
+* No Bloat or AI Slop: Focused, functional controls with clear utility; strictly SVG iconography and zero emojis.
 * Resilience: Automatic keepalive pings preventing Colab/Kaggle idle timeouts.
 * Cost: 100% free tier infrastructure compatible (Google Colab free T4, Kaggle free 2x T4).
 
@@ -128,5 +147,6 @@ The system comprises three primary layers:
 * Milestone 2: Worker join script launching high-performance llama.cpp RPC backend.
 * Milestone 3: Interactive multi-provider model search and download engine (`cluster fetch`).
 * Milestone 4: Cooperative multi-GPU layer placement and streaming execution.
-* Milestone 5: Admin CLI commands for cluster telemetry and model management.
-* Milestone 6: Multi-user fair share request queueing for team inference.
+* Milestone 5: Desktop Application Core (Matte Black UI, SVG icon system, Cortex.io-style navigation, and Live Mesh Graph).
+* Milestone 6: Desktop Dual-Mode Implementation (Admin Deployment Console + Member Chat Playground & Proxy Manager).
+* Milestone 7: Multi-user fair share request queueing and telemetry dashboard.
