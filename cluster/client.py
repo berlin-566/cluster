@@ -33,15 +33,18 @@ class ClusterClient:
             headers.update(extra_headers)
         return headers
 
+    def _open_url(self, req: urllib.request.Request, timeout: float = 10.0) -> Any:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        return opener.open(req, timeout=timeout)
+
     def health(self) -> Dict[str, Any]:
-        """Check cloud server status and round-trip latency."""
+        """Check cloud server status, role, and round-trip latency."""
         if not self.remote_url:
             return {"status": "error", "error": "No remote URL configured. Run 'cluster connect <url>' first."}
         
         t0 = time.perf_counter()
         headers = self._get_headers()
 
-        # Support both /_cluster/health and legacy /_host_it/health
         candidates = [f"{self.remote_url}/_cluster/health", f"{self.remote_url}/_host_it/health"]
         last_error = ""
 
@@ -63,7 +66,7 @@ class ClusterClient:
                             return {"status": "error", "error": f"HTTP {resp.status_code}: {resp.text}", "latency_ms": latency}
                 else:
                     req = urllib.request.Request(url, headers=headers, method="GET")
-                    with urllib.request.urlopen(req, timeout=10.0) as resp:
+                    with self._open_url(req, timeout=10.0) as resp:
                         latency = round((time.perf_counter() - t0) * 1000, 1)
                         data = json.loads(resp.read().decode("utf-8"))
                         data["latency_ms"] = latency
@@ -82,7 +85,7 @@ class ClusterClient:
         return {"status": "unreachable", "error": last_error or "Endpoint not found", "latency_ms": -1}
 
     def gpu_stats(self) -> Dict[str, Any]:
-        """Fetch remote GPU telemetry (VRAM, utilization, temp)."""
+        """Fetch remote multi-node GPU telemetry (pooled VRAM, utilization, temp)."""
         headers = self._get_headers()
         candidates = [f"{self.remote_url}/_cluster/gpu", f"{self.remote_url}/_host_it/gpu"]
         
@@ -98,7 +101,7 @@ class ClusterClient:
                         return {"status": "error", "error": resp.text}
                 else:
                     req = urllib.request.Request(url, headers=headers, method="GET")
-                    with urllib.request.urlopen(req, timeout=10.0) as resp:
+                    with self._open_url(req, timeout=10.0) as resp:
                         return json.loads(resp.read().decode("utf-8"))
             except urllib.error.HTTPError as e:
                 if e.code == 404:
@@ -109,8 +112,81 @@ class ClusterClient:
 
         return {"status": "error", "error": "GPU telemetry endpoint not reachable."}
 
+    def get_cluster_status(self) -> Dict[str, Any]:
+        """Get comprehensive cluster health, node counts, and latency."""
+        url = f"{self.remote_url}/_cluster/status"
+        headers = self._get_headers()
+        try:
+            if HAS_HTTPX:
+                with httpx.Client(timeout=10.0, follow_redirects=True, trust_env=False) as client:
+                    resp = client.get(url, headers=headers)
+                    if resp.status_code == 200:
+                        return resp.json()
+            else:
+                req = urllib.request.Request(url, headers=headers, method="GET")
+                with self._open_url(req, timeout=10.0) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+        except Exception:
+            pass
+
+        # Fallback to health + gpu info
+        h = self.health()
+        gpu = self.gpu_stats()
+        return {
+            "status": h.get("status", "healthy"),
+            "service": "cluster",
+            "latency_ms": h.get("latency_ms", 0),
+            "gpu": gpu,
+            "workers_count": gpu.get("gpu_count", 1) - 1 if gpu.get("gpu_count", 1) > 1 else 0,
+            "pooled_vram_gb": round(gpu.get("vram_total_mb", 0) / 1024, 1),
+        }
+
+    def get_workers(self) -> List[Dict[str, Any]]:
+        """List worker nodes, statuses, and reconnect commands."""
+        url = f"{self.remote_url}/_cluster/workers"
+        headers = self._get_headers()
+        try:
+            if HAS_HTTPX:
+                with httpx.Client(timeout=10.0, follow_redirects=True, trust_env=False) as client:
+                    resp = client.get(url, headers=headers)
+                    if resp.status_code == 200:
+                        return resp.json().get("workers", [])
+            else:
+                req = urllib.request.Request(url, headers=headers, method="GET")
+                with self._open_url(req, timeout=10.0) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    return data.get("workers", [])
+        except Exception:
+            pass
+        return []
+
+    def deploy_model(self, model_name: str, options: Optional[Dict[str, Any]] = None) -> Tuple[bool, str]:
+        """Deploy model to the cluster Leader with cooperative sharding."""
+        url = f"{self.remote_url}/_cluster/deploy"
+        headers = self._get_headers()
+        payload: Dict[str, Any] = {"model": model_name}
+        if options:
+            payload.update(options)
+        body = json.dumps(payload).encode("utf-8")
+
+        try:
+            if HAS_HTTPX:
+                with httpx.Client(timeout=60.0, follow_redirects=True, trust_env=False) as client:
+                    resp = client.post(url, headers=headers, content=body)
+                    if resp.status_code == 200:
+                        return True, resp.json().get("message", "Model deployed successfully.")
+                    return False, resp.text
+            else:
+                req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+                with self._open_url(req, timeout=60.0) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    return True, data.get("message", "Model deployed.")
+        except Exception as e:
+            # Fallback to standard pull if custom deploy endpoint is not active
+            return self.pull_model(model_name)
+
     def list_models(self) -> List[Dict[str, Any]]:
-        """List models installed on the remote Ollama instance."""
+        """List models installed on the remote Ollama/Cluster instance."""
         url = f"{self.remote_url}/api/tags"
         headers = self._get_headers()
         try:
@@ -122,7 +198,7 @@ class ClusterClient:
                     return []
             else:
                 req = urllib.request.Request(url, headers=headers, method="GET")
-                with urllib.request.urlopen(req, timeout=15.0) as resp:
+                with self._open_url(req, timeout=15.0) as resp:
                     data = json.loads(resp.read().decode("utf-8"))
                     return data.get("models", [])
         except Exception:
@@ -161,7 +237,7 @@ class ClusterClient:
                 return True, ""
             else:
                 req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-                with urllib.request.urlopen(req, timeout=600.0) as resp:
+                with self._open_url(req, timeout=600.0) as resp:
                     for line in resp:
                         decoded = line.decode("utf-8").strip()
                         if decoded:
@@ -197,7 +273,7 @@ class ClusterClient:
                     return resp.status_code == 200
             else:
                 req = urllib.request.Request(url, data=body, headers=headers, method="DELETE")
-                with urllib.request.urlopen(req, timeout=20.0) as resp:
+                with self._open_url(req, timeout=20.0) as resp:
                     return resp.status == 200
         except Exception:
             return False
@@ -233,7 +309,7 @@ class ClusterClient:
                                 pass
         else:
             req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-            with urllib.request.urlopen(req, timeout=300.0) as resp:
+            with self._open_url(req, timeout=300.0) as resp:
                 for line in resp:
                     decoded = line.decode("utf-8").strip()
                     if decoded:

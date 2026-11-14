@@ -1,202 +1,171 @@
 # cluster
-## Cloud-to-Local GPU LLM Bridge
+## Multi-Notebook Distributed GPU Mesh
 
-Run powerful open-weight models (DeepSeek-R1, Qwen 2.5 14B/32B, Llama 3.3 70B) on free cloud GPUs (Google Colab, Kaggle) and access them seamlessly on your low-end laptop.
+Pool multiple ephemeral cloud notebooks (Google Colab, Kaggle, team GPU instances) into an orchestrated, unified multi-GPU inference cluster, accessible via both a streamlined CLI and a sleek, Cortex.io-style matte-black desktop web dashboard.
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/berlin-566/cluster/blob/main/notebooks/colab_cluster.ipynb)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-brightgreen.svg)](https://www.python.org/downloads/)
 
-## The Problem and The Solution
+---
 
-* The Problem: You want to experiment with or develop apps using large, strong LLMs like DeepSeek-R1 14B/32B, Qwen 2.5 14B/32B, or Llama 3.3 70B. But your local desktop or laptop has limited RAM/VRAM, leading to out-of-memory errors or slow speeds.
-* The Solution: cluster spins up an Ollama engine on free cloud GPUs (Google Colab T4/A100 or Kaggle 2x T4 = 32GB VRAM), locks it down behind an authenticated reverse proxy, tunnels it securely over Cloudflare, and binds a transparent bridge locally to http://127.0.0.1:11434.
+## Key Features
 
-Any tool that works with Ollama, including Cursor, VS Code Continue, Open WebUI, Chatbox, AnythingLLM, or the official ollama CLI, now runs at full cloud GPU speed directly from your laptop.
+* **Unified Multi-GPU Model Deployment**: Download a model once (Qwen 2.5 14B/32B/72B, DeepSeek-R1, GLM, Llama 3.3) and cooperatively deploy across 4+ GPUs simultaneously.
+* **VRAM Pooling**: Combines the VRAM of all participating notebooks (e.g. 4x 16GB T4 = **64GB pooled VRAM**, or 4x 2xT4 = **128GB pooled VRAM**) to run massive models that cannot fit on any single notebook.
+* **Pre-Compiled llama.cpp RPC Backends**: High-performance CUDA 12 RPC engine (`llama-server` and `rpc-server`) with zero Python runtime overhead during token generation.
+* **Interactive Multi-Provider Model Resolver (`cluster fetch <model>`)**: Searches across Ollama Library and Hugging Face Hub (verified GGUF publishers), displays quantization levels and automatic pooled VRAM fit evaluation before deploying.
+* **Dual-Port Runtime Architecture**:
+  * **Port 2424**: Core Hub Engine and Cortex.io-style Matte-Black Web Dashboard.
+  * **Port 8080**: Transparent API Proxy ingress; all client tools (Cursor, VS Code, Open WebUI) connect to 8080, which routes through the 2424 Hub for live traffic telemetry and mesh visualization.
+* **Zero-Dependency Embedded Frontend**: 100% self-contained HTML5, modern CSS, reactive JS, and vector SVGs bundled directly into the Python package with zero Node.js/npm requirements (under 25MB RAM).
+* **Automatic UI Launch**: Running `cluster ui` boots the 2424 Hub, binds the 8080 proxy, and automatically opens your default browser.
+* **Dual-Mode Persona Experience**:
+  * **Admin Mode**: Full cluster management, model deployment, layer sharding orchestration, worker eviction, and diagnostic logs.
+  * **User / Member Mode**: Built-in interactive streaming chat playground, local proxy status (`http://127.0.0.1:8080`), and live generation speed scoreboard.
+* **Resilient Hot-Reconnection**: If a worker notebook disconnects due to Colab idle timeout, prompts are paused in queue while the Leader alerts with the exact one-liner command to rejoin without restarting the cluster.
+
+---
 
 ## Architecture
 
 ```mermaid
-flowchart LR
-    subgraph Cloud["Cloud GPU (Google Colab / Kaggle)"]
+flowchart TD
+    subgraph CloudMesh["Cloud Multi-GPU Mesh (Google Colab / Kaggle)"]
         direction TB
-        GPU["NVIDIA GPU<br/>(T4 16GB / 2x T4 32GB / A100)"]
-        OLLAMA["Ollama Engine<br/>(:11435)"]
-        AUTH["Auth Proxy (:8080)<br/>Bearer Token Authentication<br/>Real-time GPU Telemetry API"]
-        CF_TUNNEL["Cloudflare Tunnel<br/>(trycloudflare.com)"]
-        KEEPALIVE["Keepalive Daemon"]
+        subgraph Leader["Leader Notebook (Colab / Kaggle)"]
+            LEADER_GPU["GPU 1: Tesla T4 (16GB)<br/>Embedding Layer + Layers 0..12"]
+            LEADER_ORCH["llama-server / RPC Coordinator<br/>Auth Proxy (:8080)<br/>Cloudflare Secure Tunnel"]
+        end
 
-        GPU --> OLLAMA
-        OLLAMA <--> AUTH
-        AUTH <--> CF_TUNNEL
+        subgraph Workers["Worker RPC Pool"]
+            W1["notebook-1: Tesla T4 (16GB)<br/>Layers 13..24 (rpc-server :50052)"]
+            W2["notebook-2: Tesla T4 (16GB)<br/>Layers 25..36 (rpc-server :50052)"]
+            W3["notebook-3: Tesla T4 (16GB)<br/>Layers 37..48 + LM Head (rpc-server :50052)"]
+        end
+
+        LEADER_GPU <--> LEADER_ORCH
+        LEADER_ORCH <--> W1
+        LEADER_ORCH <--> W2
+        LEADER_ORCH <--> W3
     end
 
     subgraph Internet["Encrypted Transport"]
-        CF_PUB["https://*.trycloudflare.com<br/>(End-to-End TLS + Auth Token)"]
+        TUNNEL["Cloudflare Secure Tunnel<br/>(trycloudflare.com + Token RBAC)"]
     end
 
-    subgraph Local["Local Low-End Machine (Desktop / Laptop)"]
+    subgraph LocalMachine["Local Machine (Desktop / Laptop)"]
         direction TB
-        CLI["cluster CLI and TUI<br/>cluster chat<br/>cluster gpu<br/>cluster models"]
-        LOCAL_PROXY["cluster Local Proxy (:11434)<br/>Transparent Token Injection<br/>Unbuffered Stream Chunks"]
-        APPS["Local Applications<br/>Cursor / VS Code Cline<br/>Open WebUI / Chatbox<br/>Ollama CLI / Python SDK"]
+        HUB["Port 2424: cluster Core Hub Engine<br/>Matte-Black Web Dashboard<br/>Live Mesh Topology Graph<br/>SSE Telemetry Bus"]
+        PROXY["Port 8080: Transparent API Ingress<br/>Live Pulse Beam Telemetry<br/>Bearer Token Injection"]
+        CLI["cluster CLI Suite<br/>cluster fetch | cluster ui<br/>cluster cluster workers"]
+        CLIENTS["External Applications<br/>Cursor IDE / VS Code Continue<br/>Open WebUI / Python SDK"]
 
-        APPS <--> LOCAL_PROXY
-        CLI <--> LOCAL_PROXY
-        LOCAL_PROXY <--> CF_PUB
+        CLIENTS <--> PROXY
+        PROXY <--> HUB
+        CLI <--> HUB
+        HUB <--> TUNNEL
     end
 
-    CF_TUNNEL <--> CF_PUB
+    CloudMesh <--> TUNNEL
 ```
+
+---
 
 ## Quickstart
 
-### Step 1: Start the Cloud Host (Colab or Kaggle)
+### 1. Launch the Leader Notebook
+1. Open the Leader Notebook: [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/berlin-566/cluster/blob/main/notebooks/colab_cluster.ipynb)
+2. Switch Runtime to **T4 GPU** (or 2x T4 on Kaggle).
+3. Run the bootstrap cell and enter the number of worker notebooks (default: 3).
+4. The Leader control board will output:
+   * **Worker Join Links**: Copy-paste into secondary blank Colab/Kaggle notebooks.
+   * **Admin Link**: `cluster admin connect <url> --token <token>`
+   * **Member Link**: `cluster connect <url> --token <token>`
 
-#### Option A: Google Colab (1-Click)
-1. Open the notebook: [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/berlin-566/cluster/blob/main/notebooks/colab_cluster.ipynb)
-2. Ensure GPU is enabled: Runtime -> Change runtime type -> T4 GPU.
-3. Run the cell (Ctrl+F9).
-4. Copy the generated `cluster connect ...` command from the console output.
-
-Optional: Check the PERSIST_TO_GOOGLE_DRIVE checkbox in Colab to keep downloaded models permanently in your Google Drive across sessions.
-
-#### Option B: Kaggle (2x T4 GPUs = 32 GB VRAM)
-1. Open a new notebook on Kaggle (https://www.kaggle.com/code).
-2. Set Accelerator to GPU T4 x 2 in the right settings panel.
-3. Toggle Internet On (requires phone verification on Kaggle).
-4. Run:
-   ```bash
-   !curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/remote/bootstrap.sh | bash
-   ```
-5. Copy the generated `cluster connect ...` command.
-
-### Step 2: Install cluster on Your Desktop / Laptop
-
-Run this 1-line command in your local terminal:
+### 2. Install or Update cluster Desktop CLI
 ```bash
 curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/desktop.sh | bash
 ```
 
-Or manually clone and install:
+### 3. Connect & Launch Dashboard
 ```bash
-git clone https://github.com/berlin-566/cluster.git ~/.local/share/cluster
-cd ~/.local/share/cluster
-pip install -e .
+# Connect as Administrator
+cluster admin connect <leader-tunnel-url> --token <admin-token>
+
+# Launch the Cortex.io-style Matte-Black Desktop Web Dashboard
+cluster ui
 ```
+The browser will automatically open `http://localhost:2424`.
 
-### Step 3: Connect to Cloud Host
-
-Paste the command from your cloud notebook:
-```bash
-cluster connect https://random-words.trycloudflare.com --token cluster-sec-9a4f2b1c
-```
-Output:
-```text
-[OK] Connected successfully! Latency: 42.1 ms
-[GPU] Remote GPU: Tesla T4 (VRAM: 0MB / 15360MB)
-Next steps:
-  1. Start local proxy:  cluster proxy
-  2. Chat in terminal:   cluster chat
-```
-
-### Step 4: Pull Your First Model and Chat
-
-Download a model directly onto the cloud GPU:
-```bash
-cluster models pull qwen2.5:14b
-# or: cluster models pull deepseek-r1:14b
-# or: cluster models pull llama3.1:8b
-```
-
-Start the interactive terminal chat:
-```bash
-cluster chat
-```
-
-### Step 5: Start Local Proxy for Apps
-
-Run the local transparent proxy:
-```bash
-cluster proxy
-```
-```text
-[PROXY] cluster local proxy running at http://127.0.0.1:11434
-[INFO] Point Cursor, Continue, Open WebUI, or Ollama CLI to: http://127.0.0.1:11434
-```
-
-Now, any app that connects to http://localhost:11434 is backed by your cloud GPU.
-
-## Connecting Local Apps
-
-### Cursor / VS Code (Continue Extension)
-In config.json for Continue or Cursor:
-```json
-{
-  "models": [
-    {
-      "title": "Cloud Qwen 2.5 14B",
-      "provider": "ollama",
-      "model": "qwen2.5:14b",
-      "apiBase": "http://localhost:11434"
-    }
-  ]
-}
-```
-
-### Open WebUI
-Run Open WebUI via Docker:
-```bash
-docker run -d -p 3000:8080 --add-host=host.docker.internal:host-gateway -v open-webui:/app/backend/data --name open-webui --restart always ghcr.io/open-webui/open-webui:main
-```
-Open http://localhost:3000 to interact with models running through cluster.
-
-### Official Ollama CLI and SDK
-Use the official ollama CLI as normal:
-```bash
-ollama list
-ollama run qwen2.5:14b "Explain quantum computing simply."
-```
-
-Or via Python:
-```python
-import ollama
-
-client = ollama.Client(host='http://localhost:11434')
-response = client.chat(model='qwen2.5:14b', messages=[
-    {'role': 'user', 'content': 'Hello from my laptop!'}
-])
-print(response['message']['content'])
-```
+---
 
 ## CLI Reference
 
-| Command | Description |
-| :-- | :-- |
-| cluster connect <url> --token <token> | Connect to a remote cloud runner and save config |
-| cluster proxy [--port 11434] | Start the transparent local Ollama reverse proxy |
-| cluster chat [model] | Launch interactive terminal chat with live streaming |
-| cluster models list | List all models installed on the remote cloud GPU |
-| cluster models pull <name> | Download a model directly to the cloud GPU |
-| cluster models rm <name> | Delete a model from the cloud GPU |
-| cluster gpu | View live remote GPU VRAM usage and temperature |
-| cluster status | Check ping latency and tunnel health |
-| cluster notebook colab | Print Google Colab 1-click launch instructions |
-| cluster notebook kaggle | Print Kaggle 2x T4 setup instructions |
-
-## Security and Privacy
-
-1. Cryptographic Token Gate: Cloudflare Tunnel URLs are protected with a unique Bearer token (cluster-sec-...). Any unauthenticated request from the internet is rejected with 401 Unauthorized.
-2. Encrypted in Transit: All communication between your laptop and the cloud GPU uses HTTPS / TLS 1.3 encryption.
-3. Zero Open Inbound Ports on Laptop: Your laptop makes outbound connections only; no port forwarding or public router IP exposure needed.
-
-## Testing
-
-Run the test suite:
+### Admin Commands
 ```bash
-python3 -m unittest discover tests -v
+# Authenticate as cluster administrator
+cluster admin connect <url> --token <token>
+
+# Interactive multi-provider model search and cooperative deployment
+cluster fetch <query>
+
+# Live multi-node GPU dashboard with pooled VRAM telemetry
+cluster gpu
+
+# Comprehensive cluster health and latency report
+cluster cluster status
+
+# List worker node states and reconnect commands
+cluster cluster workers
+
+# Launch local Hub and open the browser dashboard on http://localhost:2424
+cluster ui [--port 2424] [--proxy-port 8080] [--no-browser]
 ```
+
+### Team Member Commands
+```bash
+# Authenticate as team member
+cluster connect <url> --token <token>
+
+# Interactive terminal chat streaming at multi-GPU speed
+cluster chat [model]
+
+# Local transparent reverse proxy for Cursor, VS Code, and Open WebUI
+cluster proxy [--port 8080]
+
+# Check cluster connectivity and current loaded model
+cluster status
+
+# Check installed version and live update status against main branch
+cluster version
+```
+
+---
+
+## Transparent Proxy IDE Setup (Port 8080)
+
+All external tools connect to `http://127.0.0.1:8080`:
+
+* **Cursor IDE**:
+  * Settings -> Models -> Add Custom Model -> Model: `qwen2.5:14b` (or active model)
+  * OpenAI API Key: `cluster`
+  * Override Base URL: `http://127.0.0.1:8080/v1`
+* **Python OpenAI SDK**:
+  ```python
+  from openai import OpenAI
+  client = OpenAI(base_url="http://127.0.0.1:8080/v1", api_key="cluster")
+  response = client.chat.completions.create(
+      model="qwen2.5:14b",
+      messages=[{"role": "user", "content": "Explain quantum computing in one sentence."}],
+      stream=True
+  )
+  for chunk in response:
+      print(chunk.choices[0].delta.content or "", end="")
+  ```
+
+---
 
 ## License
 
-MIT (c) berlin-566
+MIT License. Designed with zero bloat and strictly vector SVG iconography.

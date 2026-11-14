@@ -5,14 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "cluster"
 version = "0.1.0"
-description = "Cloud-to-Local GPU LLM Bridge: Host Ollama models on Colab/Kaggle and use them locally with zero hassle."
+description = "Multi-Notebook Distributed GPU Mesh: Pool Colab/Kaggle GPUs into a unified multi-GPU inference cluster."
 readme = "README.md"
 requires-python = ">=3.8"
 license = { text = "MIT" }
 authors = [
     { name = "berlin-566" }
 ]
-keywords = ["ollama", "llm", "google-colab", "kaggle", "gpu", "tunnel", "ai"]
+keywords = ["llm", "distributed", "multi-gpu", "vram-pooling", "google-colab", "kaggle", "llama-cpp", "tunnel", "ai"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
@@ -38,3 +38,6 @@ host-it = "cluster.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["cluster*"]
+
+[tool.setuptools.package-data]
+cluster = ["web/*"]
