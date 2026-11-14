@@ -3,7 +3,9 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-DEFAULT_PORT = 11434
+DEFAULT_PROXY_PORT = 8080
+DEFAULT_HUB_PORT = 2424
+DEFAULT_PORT = DEFAULT_PROXY_PORT  # Alias for backward compatibility
 DEFAULT_TIMEOUT = 120
 
 def get_config_dir() -> Path:
@@ -27,7 +29,12 @@ def default_config() -> Dict[str, Any]:
     return {
         "remote_url": "",
         "auth_token": "",
-        "local_port": DEFAULT_PORT,
+        "admin_token": "",
+        "role": "member",  # "admin" or "member"
+        "local_port": DEFAULT_PROXY_PORT,
+        "proxy_port": DEFAULT_PROXY_PORT,
+        "hub_port": DEFAULT_HUB_PORT,
+        "theme": "dark",
         "last_model": "",
         "timeout": DEFAULT_TIMEOUT,
     }
@@ -43,6 +50,11 @@ def load_config() -> Dict[str, Any]:
             data = json.load(f)
             merged = default_config()
             merged.update(data)
+            # Ensure local_port and proxy_port stay in sync if one was set
+            if "local_port" in data and "proxy_port" not in data:
+                merged["proxy_port"] = data["local_port"]
+            elif "proxy_port" in data:
+                merged["local_port"] = data["proxy_port"]
             return merged
     except Exception:
         return default_config()
@@ -57,6 +69,10 @@ def update_config(**kwargs: Any) -> Dict[str, Any]:
     for k, v in kwargs.items():
         if v is not None:
             cfg[k] = v
+            if k == "proxy_port":
+                cfg["local_port"] = v
+            elif k == "local_port":
+                cfg["proxy_port"] = v
     save_config(cfg)
     return cfg
 

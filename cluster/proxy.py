@@ -1,16 +1,18 @@
 import http.client
 import json
 import logging
+import os
+import re
 import socket
 import sys
-from socketserver import ThreadingMixIn
-from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 import time
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from socketserver import ThreadingMixIn
 from typing import Optional, Tuple
 import urllib.parse
 
-from cluster.config import load_config
+from cluster.config import load_config, DEFAULT_PROXY_PORT, DEFAULT_HUB_PORT
 from cluster.client import ClusterClient
 
 logger = logging.getLogger("cluster.proxy")
@@ -55,7 +57,6 @@ class OllamaProxyHandler(BaseHTTPRequestHandler):
         is_https = parsed.scheme == "https"
         host = parsed.hostname or ""
         port = parsed.port or (443 if is_https else 80)
-        base_path = parsed.path.rstrip("/")
         return remote_url, host, port, is_https, auth_token
 
     def _send_error_json(self, status_code: int, message: str) -> None:
@@ -65,6 +66,7 @@ class OllamaProxyHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))
             self.send_header("Connection", "close")
+            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(payload)
             self.wfile.flush()
@@ -83,8 +85,8 @@ class OllamaProxyHandler(BaseHTTPRequestHandler):
         self._proxy_request("HEAD")
 
     def do_GET(self) -> None:
-        if self.path == "/" or self.path == "":
-            body = b"Ollama is running (via cluster cloud bridge)\n"
+        if self.path in ("/", ""):
+            body = b"Ollama is running (via cluster cloud bridge on port 8080)\n"
             self.send_response(200)
             self.send_header("Content-Type", "text/plain")
             self.send_header("Content-Length", str(len(body)))
@@ -99,9 +101,32 @@ class OllamaProxyHandler(BaseHTTPRequestHandler):
             health = client.health()
             payload = json.dumps({
                 "cluster": "running",
+                "proxy_port": DEFAULT_PROXY_PORT,
                 "remote_url": cfg.get("remote_url"),
                 "health": health,
             }).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+
+        # OpenAI compatible models list endpoint
+        if self.path in ("/v1/models", "/v1/models/"):
+            client = ClusterClient()
+            models_list = client.list_models()
+            model_items = []
+            for m in models_list:
+                m_name = m.get("name", "default")
+                model_items.append({
+                    "id": m_name,
+                    "object": "model",
+                    "created": int(time.time()),
+                    "owned_by": "cluster"
+                })
+            payload = json.dumps({"object": "list", "data": model_items}).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))
@@ -128,7 +153,6 @@ class OllamaProxyHandler(BaseHTTPRequestHandler):
             self._send_error_json(503, "cluster is not connected to a remote cloud runner. Run 'cluster connect <url>' first.")
             return
 
-        # Read incoming request body if present
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length) if content_length > 0 else None
 
@@ -148,32 +172,33 @@ class OllamaProxyHandler(BaseHTTPRequestHandler):
                 if header_name.lower() not in HOP_BY_HOP:
                     out_headers[header_name] = header_val
 
-            out_headers["Host"] = host
-            if auth_token:
+            # Inject Bearer auth token if missing
+            if auth_token and "authorization" not in [h.lower() for h in out_headers]:
                 out_headers["Authorization"] = f"Bearer {auth_token}"
 
-            conn.request(method, target_path, body=body, headers=out_headers)
-            upstream_resp = conn.getresponse()
+            out_headers["Host"] = host
 
-            self.send_response(upstream_resp.status, upstream_resp.reason)
-            
+            conn.request(method, target_path, body=body, headers=out_headers)
+            resp = conn.getresponse()
+
+            self.send_response(resp.status, resp.reason)
+
             is_chunked = False
-            for header, val in upstream_resp.getheaders():
-                lower_h = header.lower()
-                if lower_h not in HOP_BY_HOP:
-                    self.send_header(header, val)
-                elif lower_h == "transfer-encoding" and "chunked" in val.lower():
+            for header_name, header_val in resp.getheaders():
+                lower_h = header_name.lower()
+                if lower_h == "transfer-encoding" and "chunked" in header_val.lower():
                     is_chunked = True
+                elif lower_h not in HOP_BY_HOP:
+                    self.send_header(header_name, header_val)
 
             self.send_header("Access-Control-Allow-Origin", "*")
-            
-            if is_chunked or upstream_resp.getheader("Transfer-Encoding") == "chunked":
+
+            if is_chunked or resp.getheader("Transfer-Encoding") == "chunked":
                 self.send_header("Transfer-Encoding", "chunked")
                 self.end_headers()
-                
                 try:
                     while True:
-                        chunk = upstream_resp.read(4096)
+                        chunk = resp.read(4096)
                         if not chunk:
                             break
                         hex_len = f"{len(chunk):X}\r\n".encode("latin-1")
@@ -187,53 +212,35 @@ class OllamaProxyHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 try:
                     while True:
-                        chunk = upstream_resp.read(8192)
+                        chunk = resp.read(8192)
                         if not chunk:
                             break
                         self.wfile.write(chunk)
                         self.wfile.flush()
                 except (BrokenPipeError, ConnectionResetError):
                     return
-
-        except (socket.timeout, TimeoutError):
-            self._send_error_json(504, "Request to remote cloud GPU timed out.")
-        except ConnectionRefusedError:
-            self._send_error_json(502, f"Could not connect to remote host {host}:{port}.")
         except (BrokenPipeError, ConnectionResetError):
             pass
         except Exception as e:
-            self._send_error_json(502, f"Cloud bridge proxy error: {str(e)}")
+            self._send_error_json(502, f"Failed to connect to remote cluster runner: {str(e)}")
         finally:
             if conn:
                 conn.close()
 
-def run_proxy(port: int = 11434, host: str = "127.0.0.1") -> None:
-    """Run the local transparent proxy synchronously."""
-    server_address = (host, port)
+def run_proxy(port: int = DEFAULT_PROXY_PORT, host: str = "127.0.0.1") -> None:
+    """Run the transparent proxy HTTP server in foreground."""
+    server = ThreadedHTTPServer((host, port), OllamaProxyHandler)
+    logger.info(f"cluster proxy running on http://{host}:{port}")
     try:
-        httpd = ThreadedHTTPServer(server_address, OllamaProxyHandler)
-    except OSError as e:
-        if e.errno == 98 or "Address already in use" in str(e):
-            raise RuntimeError(
-                f"Port {port} is already in use by another process (likely a local Ollama daemon).\n"
-                f"Stop the local daemon (e.g. 'systemctl stop ollama') or run 'cluster proxy --port <other-port>'."
-            )
-        raise e
-
-    print(f"[PROXY] cluster local proxy running at http://{host}:{port}")
-    print(f"[INFO] Point Cursor, Continue, Open WebUI, or Ollama CLI to: http://{host}:{port}")
-    print("Press Ctrl+C to stop.")
-    try:
-        httpd.serve_forever()
+        server.serve_forever()
     except KeyboardInterrupt:
-        pass
+        logger.info("Stopping proxy server...")
     finally:
-        httpd.server_close()
+        server.server_close()
 
-def start_proxy_background(port: int = 11434, host: str = "127.0.0.1") -> Tuple[ThreadedHTTPServer, threading.Thread]:
-    """Start local proxy in a background daemon thread."""
-    server_address = (host, port)
-    httpd = ThreadedHTTPServer(server_address, OllamaProxyHandler)
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-    thread.start()
-    return httpd, thread
+def start_proxy_background(port: int = DEFAULT_PROXY_PORT, host: str = "127.0.0.1") -> ThreadedHTTPServer:
+    """Launch proxy HTTP server in background thread."""
+    server = ThreadedHTTPServer((host, port), OllamaProxyHandler)
+    t = threading.Thread(target=server.serve_forever, daemon=True)
+    t.start()
+    return server

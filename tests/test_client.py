@@ -35,6 +35,18 @@ class MockCloudServer(BaseHTTPRequestHandler):
             self._send_json(200, b'{"status": "ok", "service": "cluster"}')
             return
 
+        if self.path in ("/_cluster/status", "/_host_it/status"):
+            self._send_json(200, b'{"status": "HEALTHY", "workers_count": 3, "pooled_vram_gb": 64.0}')
+            return
+
+        if self.path in ("/_cluster/workers", "/_host_it/workers"):
+            self._send_json(200, b'{"workers": [{"name": "notebook-1", "role": "Worker", "status": "HEALTHY"}]}')
+            return
+
+        if self.path == "/_cluster/deploy":
+            self._send_json(200, b'{"status": "deployed", "message": "Deployed successfully"}')
+            return
+
         if self.path in ("/_cluster/gpu", "/_host_it/gpu"):
             self._send_json(200, b'{"gpu_name": "Tesla T4", "vram_total_mb": 15360, "vram_used_mb": 2048}')
             return
@@ -49,6 +61,10 @@ class MockCloudServer(BaseHTTPRequestHandler):
         auth = self.headers.get("Authorization", "")
         if auth != f"Bearer {self.auth_token}":
             self._send_json(401, b'{"error": "unauthorized"}')
+            return
+
+        if self.path == "/_cluster/deploy":
+            self._send_json(200, b'{"status": "deployed", "message": "Deployed successfully"}')
             return
 
         if self.path == "/api/pull":
@@ -115,6 +131,18 @@ class TestClient(unittest.TestCase):
             models = client.list_models()
             self.assertEqual(len(models), 1)
             self.assertEqual(models[0]["name"], "qwen2.5:14b")
+
+            # Test cluster status, workers, and deploy
+            c_status = client.get_cluster_status()
+            self.assertEqual(c_status.get("status"), "HEALTHY")
+            self.assertEqual(c_status.get("workers_count"), 3)
+
+            workers = client.get_workers()
+            self.assertEqual(len(workers), 1)
+            self.assertEqual(workers[0]["name"], "notebook-1")
+
+            ok_deploy, msg = client.deploy_model("qwen2.5:32b")
+            self.assertTrue(ok_deploy)
 
             # Test pull model streaming
             statuses = []
