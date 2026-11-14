@@ -3,9 +3,9 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "host-it"
+name = "cluster"
 version = "0.1.0"
-description = "Cloud-to-Local LLM Bridge: Host Ollama models on Colab/Kaggle and use them locally with zero hassle."
+description = "Cloud-to-Local GPU LLM Bridge: Host Ollama models on Colab/Kaggle and use them locally with zero hassle."
 readme = "README.md"
 requires-python = ">=3.8"
 license = { text = "MIT" }
@@ -32,8 +32,9 @@ dev = [
 ]
 
 [project.scripts]
-host-it = "host_it.cli:main"
+cluster = "cluster.cli:main"
+host-it = "cluster.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["host_it*"]
+include = ["cluster*"]

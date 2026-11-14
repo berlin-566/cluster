@@ -13,8 +13,8 @@ try:
 except ImportError:
     HAS_RICH = False
 
-from host_it.client import HostItClient
-from host_it.config import load_config, update_config
+from cluster.client import ClusterClient
+from cluster.config import load_config, update_config
 
 # ANSI fallback colors
 COLOR_RESET = "\033[0m"
@@ -40,9 +40,9 @@ def print_banner(model: str, gpu_info: Dict[str, Any], latency: float) -> None:
             f"[bold cyan]Latency:[/bold cyan] {latency:.1f} ms\n\n"
             f"[dim]Commands: /model <name>, /models, /gpu, /status, /clear, /exit[/dim]"
         )
-        console.print(Panel(content, title="[bold magenta]host-it Terminal Chat[/bold magenta]", border_style="cyan"))
+        console.print(Panel(content, title="[bold magenta]cluster Terminal Chat[/bold magenta]", border_style="cyan"))
     else:
-        print(f"\n{COLOR_BOLD}host-it Terminal Chat{COLOR_RESET}")
+        print(f"\n{COLOR_BOLD}cluster Terminal Chat{COLOR_RESET}")
         print(f"  {COLOR_CYAN}Model:{COLOR_RESET} {COLOR_BOLD}{COLOR_GREEN}{model}{COLOR_RESET}")
         print(f"  {COLOR_CYAN}Cloud GPU:{COLOR_RESET} {gpu_name} (VRAM: {vram_str})")
         print(f"  {COLOR_CYAN}Latency:{COLOR_RESET} {latency:.1f} ms")
@@ -70,14 +70,14 @@ def display_gpu(gpu_info: Dict[str, Any]) -> None:
 
 def interactive_chat(model_override: Optional[str] = None) -> None:
     cfg = load_config()
-    client = HostItClient()
+    client = ClusterClient()
 
     # Verify connection
     health = client.health()
     if health.get("status") not in ("ok", "healthy"):
         err = health.get("error", "Remote host is unreachable.")
         print(f"{COLOR_RED}[ERROR] Cannot connect to cloud runner: {err}{COLOR_RESET}")
-        print("Run 'host-it connect <url>' to set up connection.")
+        print("Run 'cluster connect <url>' to set up connection.")
         return
 
     latency = float(health.get("latency_ms", 0.0))
@@ -99,7 +99,7 @@ def interactive_chat(model_override: Optional[str] = None) -> None:
 
     while True:
         try:
-            prompt_str = f"{COLOR_BOLD}{COLOR_CYAN}[host-it: {current_model}]{COLOR_RESET} > "
+            prompt_str = f"{COLOR_BOLD}{COLOR_CYAN}[cluster: {current_model}]{COLOR_RESET} > "
             user_input = input(prompt_str).strip()
         except (KeyboardInterrupt, EOFError):
             print(f"\n{COLOR_DIM}Exiting chat.{COLOR_RESET}")

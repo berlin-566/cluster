@@ -2,6 +2,7 @@ import http.client
 import json
 import logging
 import socket
+import sys
 from socketserver import ThreadingMixIn
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
@@ -9,10 +10,10 @@ import time
 from typing import Optional, Tuple
 import urllib.parse
 
-from host_it.config import load_config
-from host_it.client import HostItClient
+from cluster.config import load_config
+from cluster.client import ClusterClient
 
-logger = logging.getLogger("host-it.proxy")
+logger = logging.getLogger("cluster.proxy")
 
 HOP_BY_HOP = {
     "connection",
@@ -40,7 +41,6 @@ class OllamaProxyHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
     def log_message(self, format: str, *args) -> None:
-        # Suppress noisy standard request logs unless debug enabled
         pass
 
     def _get_remote_target(self) -> Tuple[str, str, int, bool, str]:
@@ -84,8 +84,7 @@ class OllamaProxyHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         if self.path == "/" or self.path == "":
-            # Standard Ollama root response
-            body = b"Ollama is running (via host-it cloud bridge)\n"
+            body = b"Ollama is running (via cluster cloud bridge)\n"
             self.send_response(200)
             self.send_header("Content-Type", "text/plain")
             self.send_header("Content-Length", str(len(body)))
@@ -94,12 +93,12 @@ class OllamaProxyHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        if self.path == "/_host_it/status":
+        if self.path in ("/_cluster/status", "/_host_it/status"):
             cfg = load_config()
-            client = HostItClient()
+            client = ClusterClient()
             health = client.health()
             payload = json.dumps({
-                "host_it": "running",
+                "cluster": "running",
                 "remote_url": cfg.get("remote_url"),
                 "health": health,
             }).encode("utf-8")
@@ -126,17 +125,15 @@ class OllamaProxyHandler(BaseHTTPRequestHandler):
         remote_url, host, port, is_https, auth_token = self._get_remote_target()
 
         if not remote_url or not host:
-            self._send_error_json(503, "host-it is not connected to a remote cloud runner. Run 'host-it connect <url>' first.")
+            self._send_error_json(503, "cluster is not connected to a remote cloud runner. Run 'cluster connect <url>' first.")
             return
 
         # Read incoming request body if present
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length) if content_length > 0 else None
 
-        # Build outbound path and query
         target_path = self.path
 
-        # Connect to remote target
         conn: Optional[http.client.HTTPConnection] = None
         try:
             if is_https:
@@ -146,7 +143,6 @@ class OllamaProxyHandler(BaseHTTPRequestHandler):
             else:
                 conn = http.client.HTTPConnection(host, port, timeout=600.0)
 
-            # Prepare outbound headers
             out_headers = {}
             for header_name, header_val in self.headers.items():
                 if header_name.lower() not in HOP_BY_HOP:
@@ -159,10 +155,8 @@ class OllamaProxyHandler(BaseHTTPRequestHandler):
             conn.request(method, target_path, body=body, headers=out_headers)
             upstream_resp = conn.getresponse()
 
-            # Stream response back to client
             self.send_response(upstream_resp.status, upstream_resp.reason)
             
-            # Forward headers (excluding hop-by-hop)
             is_chunked = False
             for header, val in upstream_resp.getheaders():
                 lower_h = header.lower()
@@ -177,7 +171,6 @@ class OllamaProxyHandler(BaseHTTPRequestHandler):
                 self.send_header("Transfer-Encoding", "chunked")
                 self.end_headers()
                 
-                # Stream chunked safely
                 try:
                     while True:
                         chunk = upstream_resp.read(4096)
@@ -191,7 +184,6 @@ class OllamaProxyHandler(BaseHTTPRequestHandler):
                 except (BrokenPipeError, ConnectionResetError):
                     return
             else:
-                # Regular stream / content-length response
                 self.end_headers()
                 try:
                     while True:
@@ -208,7 +200,6 @@ class OllamaProxyHandler(BaseHTTPRequestHandler):
         except ConnectionRefusedError:
             self._send_error_json(502, f"Could not connect to remote host {host}:{port}.")
         except (BrokenPipeError, ConnectionResetError):
-            # Client disconnected early (e.g. client cancelled or hit its own timeout)
             pass
         except Exception as e:
             self._send_error_json(502, f"Cloud bridge proxy error: {str(e)}")
@@ -225,11 +216,11 @@ def run_proxy(port: int = 11434, host: str = "127.0.0.1") -> None:
         if e.errno == 98 or "Address already in use" in str(e):
             raise RuntimeError(
                 f"Port {port} is already in use by another process (likely a local Ollama daemon).\n"
-                f"Stop the local daemon (e.g. 'systemctl stop ollama') or run 'host-it proxy --port <other-port>'."
+                f"Stop the local daemon (e.g. 'systemctl stop ollama') or run 'cluster proxy --port <other-port>'."
             )
         raise e
 
-    print(f"[PROXY] host-it local proxy running at http://{host}:{port}")
+    print(f"[PROXY] cluster local proxy running at http://{host}:{port}")
     print(f"[INFO] Point Cursor, Continue, Open WebUI, or Ollama CLI to: http://{host}:{port}")
     print("Press Ctrl+C to stop.")
     try:

@@ -7,8 +7,8 @@ import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import unittest
 
-from host_it.config import update_config
-from host_it.proxy import ThreadedHTTPServer, OllamaProxyHandler
+from cluster.config import update_config
+from cluster.proxy import ThreadedHTTPServer, OllamaProxyHandler
 
 class MockUpstreamOllama(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
@@ -75,8 +75,8 @@ class MockUpstreamOllama(BaseHTTPRequestHandler):
 class TestProxy(unittest.TestCase):
     def test_proxy_root_and_unconfigured(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            orig = os.environ.get("HOST_IT_CONFIG_DIR")
-            os.environ["HOST_IT_CONFIG_DIR"] = tmpdir
+            orig = os.environ.get("CLUSTER_CONFIG_DIR")
+            os.environ["CLUSTER_CONFIG_DIR"] = tmpdir
             
             proxy_server = ThreadedHTTPServer(("127.0.0.1", 0), OllamaProxyHandler)
             proxy_port = proxy_server.server_port
@@ -104,14 +104,14 @@ class TestProxy(unittest.TestCase):
                 proxy_server.shutdown()
                 proxy_server.server_close()
                 if orig:
-                    os.environ["HOST_IT_CONFIG_DIR"] = orig
+                    os.environ["CLUSTER_CONFIG_DIR"] = orig
                 else:
-                    os.environ.pop("HOST_IT_CONFIG_DIR", None)
+                    os.environ.pop("CLUSTER_CONFIG_DIR", None)
 
     def test_proxy_forwarding_and_streaming(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            orig = os.environ.get("HOST_IT_CONFIG_DIR")
-            os.environ["HOST_IT_CONFIG_DIR"] = tmpdir
+            orig = os.environ.get("CLUSTER_CONFIG_DIR")
+            os.environ["CLUSTER_CONFIG_DIR"] = tmpdir
 
             upstream = HTTPServer(("127.0.0.1", 0), MockUpstreamOllama)
             upstream_port = upstream.server_port
@@ -153,9 +153,9 @@ class TestProxy(unittest.TestCase):
                 upstream.shutdown()
                 upstream.server_close()
                 if orig:
-                    os.environ["HOST_IT_CONFIG_DIR"] = orig
+                    os.environ["CLUSTER_CONFIG_DIR"] = orig
                 else:
-                    os.environ.pop("HOST_IT_CONFIG_DIR", None)
+                    os.environ.pop("CLUSTER_CONFIG_DIR", None)
 
 if __name__ == "__main__":
     unittest.main()

@@ -7,11 +7,16 @@ DEFAULT_PORT = 11434
 DEFAULT_TIMEOUT = 120
 
 def get_config_dir() -> Path:
-    custom_dir = os.environ.get("HOST_IT_CONFIG_DIR")
+    custom_dir = os.environ.get("CLUSTER_CONFIG_DIR") or os.environ.get("HOST_IT_CONFIG_DIR")
     if custom_dir:
         path = Path(custom_dir)
     else:
-        path = Path.home() / ".config" / "host-it"
+        new_path = Path.home() / ".config" / "cluster"
+        old_path = Path.home() / ".config" / "host-it"
+        if not new_path.exists() and old_path.exists():
+            path = old_path
+        else:
+            path = new_path
     path.mkdir(parents=True, exist_ok=True)
     return path
 

@@ -10,9 +10,9 @@ try:
 except ImportError:
     HAS_HTTPX = False
 
-from host_it.config import load_config
+from cluster.config import load_config
 
-class HostItClient:
+class ClusterClient:
     def __init__(self, remote_url: Optional[str] = None, auth_token: Optional[str] = None, timeout: float = 120.0):
         cfg = load_config()
         self.remote_url = (remote_url or cfg.get("remote_url") or "").rstrip("/")
@@ -24,7 +24,7 @@ class HostItClient:
 
     def _get_headers(self, extra_headers: Optional[Dict[str, str]] = None) -> Dict[str, str]:
         headers = {
-            "User-Agent": "host-it-client/0.1.0",
+            "User-Agent": "cluster-client/0.1.0",
             "Content-Type": "application/json",
         }
         if self.auth_token:
@@ -36,57 +36,78 @@ class HostItClient:
     def health(self) -> Dict[str, Any]:
         """Check cloud server status and round-trip latency."""
         if not self.remote_url:
-            return {"status": "error", "error": "No remote URL configured. Run 'host-it connect <url>' first."}
+            return {"status": "error", "error": "No remote URL configured. Run 'cluster connect <url>' first."}
         
         t0 = time.perf_counter()
-        url = f"{self.remote_url}/_host_it/health"
         headers = self._get_headers()
 
-        try:
-            if HAS_HTTPX:
-                with httpx.Client(timeout=10.0, follow_redirects=True, trust_env=False) as client:
-                    resp = client.get(url, headers=headers)
-                    latency = round((time.perf_counter() - t0) * 1000, 1)
-                    if resp.status_code == 200:
-                        data = resp.json()
+        # Support both /_cluster/health and legacy /_host_it/health
+        candidates = [f"{self.remote_url}/_cluster/health", f"{self.remote_url}/_host_it/health"]
+        last_error = ""
+
+        for url in candidates:
+            try:
+                if HAS_HTTPX:
+                    with httpx.Client(timeout=10.0, follow_redirects=True, trust_env=False) as client:
+                        resp = client.get(url, headers=headers)
+                        latency = round((time.perf_counter() - t0) * 1000, 1)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            data["latency_ms"] = latency
+                            return data
+                        elif resp.status_code == 401:
+                            return {"status": "unauthorized", "error": "Invalid auth token. Please check your token.", "latency_ms": latency}
+                        elif resp.status_code == 404:
+                            continue
+                        else:
+                            return {"status": "error", "error": f"HTTP {resp.status_code}: {resp.text}", "latency_ms": latency}
+                else:
+                    req = urllib.request.Request(url, headers=headers, method="GET")
+                    with urllib.request.urlopen(req, timeout=10.0) as resp:
+                        latency = round((time.perf_counter() - t0) * 1000, 1)
+                        data = json.loads(resp.read().decode("utf-8"))
                         data["latency_ms"] = latency
                         return data
-                    elif resp.status_code == 401:
-                        return {"status": "unauthorized", "error": "Invalid auth token. Please check your token.", "latency_ms": latency}
-                    else:
-                        return {"status": "error", "error": f"HTTP {resp.status_code}: {resp.text}", "latency_ms": latency}
-            else:
-                req = urllib.request.Request(url, headers=headers, method="GET")
-                with urllib.request.urlopen(req, timeout=10.0) as resp:
-                    latency = round((time.perf_counter() - t0) * 1000, 1)
-                    data = json.loads(resp.read().decode("utf-8"))
-                    data["latency_ms"] = latency
-                    return data
-        except urllib.error.HTTPError as e:
-            latency = round((time.perf_counter() - t0) * 1000, 1)
-            if e.code == 401:
-                return {"status": "unauthorized", "error": "Invalid auth token.", "latency_ms": latency}
-            return {"status": "error", "error": f"HTTP {e.code}: {e.reason}", "latency_ms": latency}
-        except Exception as e:
-            return {"status": "unreachable", "error": str(e), "latency_ms": -1}
+            except urllib.error.HTTPError as e:
+                latency = round((time.perf_counter() - t0) * 1000, 1)
+                if e.code == 401:
+                    return {"status": "unauthorized", "error": "Invalid auth token.", "latency_ms": latency}
+                elif e.code == 404:
+                    continue
+                return {"status": "error", "error": f"HTTP {e.code}: {e.reason}", "latency_ms": latency}
+            except Exception as e:
+                last_error = str(e)
+                break
+
+        return {"status": "unreachable", "error": last_error or "Endpoint not found", "latency_ms": -1}
 
     def gpu_stats(self) -> Dict[str, Any]:
         """Fetch remote GPU telemetry (VRAM, utilization, temp)."""
-        url = f"{self.remote_url}/_host_it/gpu"
         headers = self._get_headers()
-        try:
-            if HAS_HTTPX:
-                with httpx.Client(timeout=10.0, follow_redirects=True, trust_env=False) as client:
-                    resp = client.get(url, headers=headers)
-                    if resp.status_code == 200:
-                        return resp.json()
-                    return {"status": "error", "error": resp.text}
-            else:
-                req = urllib.request.Request(url, headers=headers, method="GET")
-                with urllib.request.urlopen(req, timeout=10.0) as resp:
-                    return json.loads(resp.read().decode("utf-8"))
-        except Exception as e:
-            return {"status": "error", "error": str(e)}
+        candidates = [f"{self.remote_url}/_cluster/gpu", f"{self.remote_url}/_host_it/gpu"]
+        
+        for url in candidates:
+            try:
+                if HAS_HTTPX:
+                    with httpx.Client(timeout=10.0, follow_redirects=True, trust_env=False) as client:
+                        resp = client.get(url, headers=headers)
+                        if resp.status_code == 200:
+                            return resp.json()
+                        elif resp.status_code == 404:
+                            continue
+                        return {"status": "error", "error": resp.text}
+                else:
+                    req = urllib.request.Request(url, headers=headers, method="GET")
+                    with urllib.request.urlopen(req, timeout=10.0) as resp:
+                        return json.loads(resp.read().decode("utf-8"))
+            except urllib.error.HTTPError as e:
+                if e.code == 404:
+                    continue
+                return {"status": "error", "error": str(e)}
+            except Exception as e:
+                return {"status": "error", "error": str(e)}
+
+        return {"status": "error", "error": "GPU telemetry endpoint not reachable."}
 
     def list_models(self) -> List[Dict[str, Any]]:
         """List models installed on the remote Ollama instance."""
@@ -224,3 +245,6 @@ class HostItClient:
                                 yield chunk
                         except json.JSONDecodeError:
                             pass
+
+# Backward compatibility alias
+HostItClient = ClusterClient

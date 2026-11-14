@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-host-it Remote Cloud Supervisor
+cluster Remote Cloud Supervisor
 Runs inside Google Colab or Kaggle.
 Zero external pip dependencies required - uses Python standard library.
 """
@@ -173,7 +173,7 @@ class AuthProxyHandler(BaseHTTPRequestHandler):
         self.send_response(401)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("WWW-Authenticate", 'Bearer realm="host-it"')
+        self.send_header("WWW-Authenticate", 'Bearer realm="cluster"')
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(body)
@@ -190,8 +190,8 @@ class AuthProxyHandler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
 
-        if path == "/_host_it/health":
-            body = json.dumps({"status": "ok", "service": "host-it", "version": "0.1.0"}).encode("utf-8")
+        if path in ("/_cluster/health", "/_host_it/health"):
+            body = json.dumps({"status": "ok", "service": "cluster", "version": "0.1.0"}).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
@@ -204,7 +204,7 @@ class AuthProxyHandler(BaseHTTPRequestHandler):
             self._send_unauthorized()
             return
 
-        if path == "/_host_it/gpu":
+        if path in ("/_cluster/gpu", "/_host_it/gpu"):
             gpu_data = get_gpu_info()
             body = json.dumps(gpu_data).encode("utf-8")
             self.send_response(200)
@@ -359,7 +359,7 @@ def install_and_start_cloudflared():
     return tunnel_url, proc
 
 def main():
-    print("[INIT] Starting host-it Cloud Runner")
+    print("[INIT] Starting cluster Cloud Runner")
 
     # 1. GPU Detection
     gpu_info = get_gpu_info()
@@ -374,7 +374,7 @@ def main():
     install_and_start_ollama()
 
     # 3. Generate Secret Token
-    secret_token = os.environ.get("HOST_IT_TOKEN") or f"host-it-sec-{secrets.token_hex(6)}"
+    secret_token = os.environ.get("CLUSTER_TOKEN") or os.environ.get("HOST_IT_TOKEN") or f"cluster-sec-{secrets.token_hex(6)}"
 
     # 4. Start Auth Proxy
     start_auth_proxy(secret_token)
@@ -384,17 +384,17 @@ def main():
     tunnel_url, tunnel_proc = install_and_start_cloudflared()
 
     # 6. Display Clean Connection Instructions
-    print("\n[READY] host-it Cloud Runner is active")
+    print("\n[READY] cluster Cloud Runner is active")
     print(f"Cloud GPU:      {gpu_name} ({vram_mb // 1024} GB VRAM)")
     print(f"Tunnel URL:     {tunnel_url}")
     print(f"Security Token: {secret_token}")
-    print("\nIf host-it is not yet installed on your laptop, install it with:")
-    print("curl -fsSL https://raw.githubusercontent.com/berlin-566/host-it/main/desktop.sh | bash")
+    print("\nIf cluster is not yet installed on your laptop, install it with:")
+    print("curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/desktop.sh | bash")
     print("\nThen run this command on your local machine:")
-    print(f"host-it connect {tunnel_url} --token {secret_token}")
+    print(f"cluster connect {tunnel_url} --token {secret_token}")
     print("\nNext steps on your machine:")
-    print("host-it proxy       (start local bridge on http://127.0.0.1:11434)")
-    print("host-it chat        (interactive terminal chat)\n")
+    print("cluster proxy       (start local bridge on http://127.0.0.1:11434)")
+    print("cluster chat        (interactive terminal chat)\n")
 
     # 7. Keepalive Loop
     heartbeat_count = 0
@@ -405,7 +405,7 @@ def main():
             if heartbeat_count % 10 == 0:
                 print(f"[KEEPALIVE] Session active for {heartbeat_count} minutes. GPU: {gpu_name}")
     except KeyboardInterrupt:
-        print("\n[STOP] Stopping host-it cloud runner...")
+        print("\n[STOP] Stopping cluster cloud runner...")
 
 if __name__ == "__main__":
     main()

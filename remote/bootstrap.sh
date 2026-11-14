@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-echo "[host-it] Cloud-to-Local LLM Bridge Bootstrapper"
+echo "[cluster] Cloud-to-Local LLM Bridge Bootstrapper"
 
 # Ensure package manager dependencies (including zstd required by Ollama)
 if command -v apt-get &> /dev/null; then
@@ -17,12 +17,12 @@ elif command -v pacman &> /dev/null; then
 fi
 
 # Download remote supervisor script
-SERVER_URL="https://raw.githubusercontent.com/berlin-566/host-it/main/remote/server.py"
-echo "[FETCH] Downloading host-it runner..."
-curl -fsSL "$SERVER_URL" -o /tmp/host_it_server.py || {
+SERVER_URL="https://raw.githubusercontent.com/berlin-566/cluster/main/remote/server.py"
+echo "[FETCH] Downloading cluster runner..."
+curl -fsSL "$SERVER_URL" -o /tmp/cluster_server.py || {
     echo "[ERROR] Failed to download server script from GitHub."
     exit 1
 }
 
 # Run the supervisor
-python3 /tmp/host_it_server.py
+python3 /tmp/cluster_server.py

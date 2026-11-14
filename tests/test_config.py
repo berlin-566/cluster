@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from host_it.config import (
+from cluster.config import (
     load_config,
     save_config,
     update_config,
@@ -18,14 +18,14 @@ from host_it.config import (
 class TestConfig(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
-        self.orig_env = os.environ.get("HOST_IT_CONFIG_DIR")
-        os.environ["HOST_IT_CONFIG_DIR"] = self.tmpdir.name
+        self.orig_env = os.environ.get("CLUSTER_CONFIG_DIR")
+        os.environ["CLUSTER_CONFIG_DIR"] = self.tmpdir.name
 
     def tearDown(self):
         if self.orig_env is not None:
-            os.environ["HOST_IT_CONFIG_DIR"] = self.orig_env
+            os.environ["CLUSTER_CONFIG_DIR"] = self.orig_env
         else:
-            os.environ.pop("HOST_IT_CONFIG_DIR", None)
+            os.environ.pop("CLUSTER_CONFIG_DIR", None)
         self.tmpdir.cleanup()
 
     def test_config_directory_and_path(self):
@@ -60,6 +60,17 @@ class TestConfig(unittest.TestCase):
         resetted = reset_config()
         self.assertEqual(resetted["remote_url"], "")
         self.assertEqual(resetted["auth_token"], "")
+
+    def test_legacy_env_fallback(self):
+        os.environ.pop("CLUSTER_CONFIG_DIR", None)
+        with tempfile.TemporaryDirectory() as legacy_dir:
+            os.environ["HOST_IT_CONFIG_DIR"] = legacy_dir
+            try:
+                cfg_dir = get_config_dir()
+                self.assertEqual(cfg_dir, Path(legacy_dir))
+            finally:
+                os.environ.pop("HOST_IT_CONFIG_DIR", None)
+                os.environ["CLUSTER_CONFIG_DIR"] = self.tmpdir.name
 
 if __name__ == "__main__":
     unittest.main()

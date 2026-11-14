@@ -1,16 +1,16 @@
-# host-it
-## Cloud-to-Local LLM Bridge
+# cluster
+## Cloud-to-Local GPU LLM Bridge
 
 Run powerful open-weight models (DeepSeek-R1, Qwen 2.5 14B/32B, Llama 3.3 70B) on free cloud GPUs (Google Colab, Kaggle) and access them seamlessly on your low-end laptop.
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/berlin-566/host-it/blob/main/notebooks/colab_host_it.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/berlin-566/cluster/blob/main/notebooks/colab_cluster.ipynb)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-brightgreen.svg)](https://www.python.org/downloads/)
 
 ## The Problem and The Solution
 
 * The Problem: You want to experiment with or develop apps using large, strong LLMs like DeepSeek-R1 14B/32B, Qwen 2.5 14B/32B, or Llama 3.3 70B. But your local desktop or laptop has limited RAM/VRAM, leading to out-of-memory errors or slow speeds.
-* The Solution: host-it spins up an Ollama engine on free cloud GPUs (Google Colab T4/A100 or Kaggle 2x T4 = 32GB VRAM), locks it down behind an authenticated reverse proxy, tunnels it securely over Cloudflare, and binds a transparent bridge locally to http://127.0.0.1:11434.
+* The Solution: cluster spins up an Ollama engine on free cloud GPUs (Google Colab T4/A100 or Kaggle 2x T4 = 32GB VRAM), locks it down behind an authenticated reverse proxy, tunnels it securely over Cloudflare, and binds a transparent bridge locally to http://127.0.0.1:11434.
 
 Any tool that works with Ollama, including Cursor, VS Code Continue, Open WebUI, Chatbox, AnythingLLM, or the official ollama CLI, now runs at full cloud GPU speed directly from your laptop.
 
@@ -37,8 +37,8 @@ flowchart LR
 
     subgraph Local["Local Low-End Machine (Desktop / Laptop)"]
         direction TB
-        CLI["host-it CLI and TUI<br/>host-it chat<br/>host-it gpu<br/>host-it models"]
-        LOCAL_PROXY["host-it Local Proxy (:11434)<br/>Transparent Token Injection<br/>Unbuffered Stream Chunks"]
+        CLI["cluster CLI and TUI<br/>cluster chat<br/>cluster gpu<br/>cluster models"]
+        LOCAL_PROXY["cluster Local Proxy (:11434)<br/>Transparent Token Injection<br/>Unbuffered Stream Chunks"]
         APPS["Local Applications<br/>Cursor / VS Code Cline<br/>Open WebUI / Chatbox<br/>Ollama CLI / Python SDK"]
 
         APPS <--> LOCAL_PROXY
@@ -54,10 +54,10 @@ flowchart LR
 ### Step 1: Start the Cloud Host (Colab or Kaggle)
 
 #### Option A: Google Colab (1-Click)
-1. Open the notebook: [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/berlin-566/host-it/blob/main/notebooks/colab_host_it.ipynb)
+1. Open the notebook: [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/berlin-566/cluster/blob/main/notebooks/colab_cluster.ipynb)
 2. Ensure GPU is enabled: Runtime -> Change runtime type -> T4 GPU.
 3. Run the cell (Ctrl+F9).
-4. Copy the generated `host-it connect ...` command from the console output.
+4. Copy the generated `cluster connect ...` command from the console output.
 
 Optional: Check the PERSIST_TO_GOOGLE_DRIVE checkbox in Colab to keep downloaded models permanently in your Google Drive across sessions.
 
@@ -67,21 +67,21 @@ Optional: Check the PERSIST_TO_GOOGLE_DRIVE checkbox in Colab to keep downloaded
 3. Toggle Internet On (requires phone verification on Kaggle).
 4. Run:
    ```bash
-   !curl -fsSL https://raw.githubusercontent.com/berlin-566/host-it/main/remote/bootstrap.sh | bash
+   !curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/remote/bootstrap.sh | bash
    ```
-5. Copy the generated `host-it connect ...` command.
+5. Copy the generated `cluster connect ...` command.
 
-### Step 2: Install host-it on Your Desktop / Laptop
+### Step 2: Install cluster on Your Desktop / Laptop
 
 Run this 1-line command in your local terminal:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/berlin-566/host-it/main/desktop.sh | bash
+curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/desktop.sh | bash
 ```
 
 Or manually clone and install:
 ```bash
-git clone https://github.com/berlin-566/host-it.git ~/.local/share/host-it
-cd ~/.local/share/host-it
+git clone https://github.com/berlin-566/cluster.git ~/.local/share/cluster
+cd ~/.local/share/cluster
 pip install -e .
 ```
 
@@ -89,39 +89,39 @@ pip install -e .
 
 Paste the command from your cloud notebook:
 ```bash
-host-it connect https://random-words.trycloudflare.com --token host-it-sec-9a4f2b1c
+cluster connect https://random-words.trycloudflare.com --token cluster-sec-9a4f2b1c
 ```
 Output:
 ```text
 [OK] Connected successfully! Latency: 42.1 ms
 [GPU] Remote GPU: Tesla T4 (VRAM: 0MB / 15360MB)
 Next steps:
-  1. Start local proxy:  host-it proxy
-  2. Chat in terminal:   host-it chat
+  1. Start local proxy:  cluster proxy
+  2. Chat in terminal:   cluster chat
 ```
 
 ### Step 4: Pull Your First Model and Chat
 
 Download a model directly onto the cloud GPU:
 ```bash
-host-it models pull qwen2.5:14b
-# or: host-it models pull deepseek-r1:14b
-# or: host-it models pull llama3.1:8b
+cluster models pull qwen2.5:14b
+# or: cluster models pull deepseek-r1:14b
+# or: cluster models pull llama3.1:8b
 ```
 
 Start the interactive terminal chat:
 ```bash
-host-it chat
+cluster chat
 ```
 
 ### Step 5: Start Local Proxy for Apps
 
 Run the local transparent proxy:
 ```bash
-host-it proxy
+cluster proxy
 ```
 ```text
-[PROXY] host-it local proxy running at http://127.0.0.1:11434
+[PROXY] cluster local proxy running at http://127.0.0.1:11434
 [INFO] Point Cursor, Continue, Open WebUI, or Ollama CLI to: http://127.0.0.1:11434
 ```
 
@@ -149,7 +149,7 @@ Run Open WebUI via Docker:
 ```bash
 docker run -d -p 3000:8080 --add-host=host.docker.internal:host-gateway -v open-webui:/app/backend/data --name open-webui --restart always ghcr.io/open-webui/open-webui:main
 ```
-Open http://localhost:3000 to interact with models running through host-it.
+Open http://localhost:3000 to interact with models running through cluster.
 
 ### Official Ollama CLI and SDK
 Use the official ollama CLI as normal:
@@ -173,20 +173,20 @@ print(response['message']['content'])
 
 | Command | Description |
 | :-- | :-- |
-| host-it connect <url> --token <token> | Connect to a remote cloud runner and save config |
-| host-it proxy [--port 11434] | Start the transparent local Ollama reverse proxy |
-| host-it chat [model] | Launch interactive terminal chat with live streaming |
-| host-it models list | List all models installed on the remote cloud GPU |
-| host-it models pull <name> | Download a model directly to the cloud GPU |
-| host-it models rm <name> | Delete a model from the cloud GPU |
-| host-it gpu | View live remote GPU VRAM usage and temperature |
-| host-it status | Check ping latency and tunnel health |
-| host-it notebook colab | Print Google Colab 1-click launch instructions |
-| host-it notebook kaggle | Print Kaggle 2x T4 setup instructions |
+| cluster connect <url> --token <token> | Connect to a remote cloud runner and save config |
+| cluster proxy [--port 11434] | Start the transparent local Ollama reverse proxy |
+| cluster chat [model] | Launch interactive terminal chat with live streaming |
+| cluster models list | List all models installed on the remote cloud GPU |
+| cluster models pull <name> | Download a model directly to the cloud GPU |
+| cluster models rm <name> | Delete a model from the cloud GPU |
+| cluster gpu | View live remote GPU VRAM usage and temperature |
+| cluster status | Check ping latency and tunnel health |
+| cluster notebook colab | Print Google Colab 1-click launch instructions |
+| cluster notebook kaggle | Print Kaggle 2x T4 setup instructions |
 
 ## Security and Privacy
 
-1. Cryptographic Token Gate: Cloudflare Tunnel URLs are protected with a unique Bearer token (host-it-sec-...). Any unauthenticated request from the internet is rejected with 401 Unauthorized.
+1. Cryptographic Token Gate: Cloudflare Tunnel URLs are protected with a unique Bearer token (cluster-sec-...). Any unauthenticated request from the internet is rejected with 401 Unauthorized.
 2. Encrypted in Transit: All communication between your laptop and the cloud GPU uses HTTPS / TLS 1.3 encryption.
 3. Zero Open Inbound Ports on Laptop: Your laptop makes outbound connections only; no port forwarding or public router IP exposure needed.
 
