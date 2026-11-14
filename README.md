@@ -7,8 +7,6 @@ Pool multiple ephemeral cloud notebooks (Google Colab, Kaggle, team GPU instance
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-brightgreen.svg)](https://www.python.org/downloads/)
 
----
-
 ## Key Features
 
 * **Unified Multi-GPU Model Deployment**: Download a model once (Qwen 2.5 14B/32B/72B, DeepSeek-R1, GLM, Llama 3.3) and cooperatively deploy across 4+ GPUs simultaneously.
@@ -24,8 +22,6 @@ Pool multiple ephemeral cloud notebooks (Google Colab, Kaggle, team GPU instance
   * **Admin Mode**: Full cluster management, model deployment, layer sharding orchestration, worker eviction, and diagnostic logs.
   * **User / Member Mode**: Built-in interactive streaming chat playground, local proxy status (`http://127.0.0.1:8080`), and live generation speed scoreboard.
 * **Resilient Hot-Reconnection**: If a worker notebook disconnects due to Colab idle timeout, prompts are paused in queue while the Leader alerts with the exact one-liner command to rejoin without restarting the cluster.
-
----
 
 ## Architecture
 
@@ -70,39 +66,65 @@ flowchart TD
     CloudMesh <--> TUNNEL
 ```
 
----
-
 ## Quickstart
 
-### 1. Launch the Leader Notebook
-1. Open the Leader Notebook: [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/berlin-566/cluster/blob/main/notebooks/colab_cluster.ipynb)
-2. Switch Runtime to **T4 GPU** (or 2x T4 on Kaggle).
-3. Run the bootstrap cell and enter the number of worker notebooks (default: 3).
-4. The Leader control board will output:
-   * **Worker Join Links**: Copy-paste into secondary blank Colab/Kaggle notebooks.
-   * **Admin Link**: `cluster admin connect <url> --token <token>`
-   * **Member Link**: `cluster connect <url> --token <token>`
+### Step 1: Install cluster on Your Local Machine
 
-### 2. Install or Update cluster Desktop CLI
+Run this single command in your local Linux or macOS terminal:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/desktop.sh | bash
 ```
 
-### 3. Connect & Launch Dashboard
+### Step 2: Launch Your Cloud Host
+
+Choose between Single Notebook mode or Multi-Notebook Cluster mode:
+
+#### Option A: Single Notebook (Quick 1-GPU Host)
+
+Run in a code cell on Google Colab or Kaggle:
+
 ```bash
-# Connect as Administrator
-cluster admin connect <leader-tunnel-url> --token <admin-token>
-
-# Launch the Cortex.io-style Matte-Black Desktop Web Dashboard
-cluster ui
+!curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/single.sh | bash
 ```
-The browser will automatically open `http://localhost:2424`.
 
----
+Copy the connection command shown in the notebook output and run it on your local machine:
+
+```bash
+cluster connect <tunnel-url> --token <token>
+cluster proxy
+cluster chat
+```
+
+#### Option B: Multi-Notebook Cluster (Pooled Multi-GPU Mesh)
+
+Run in a code cell on your primary Leader Google Colab or Kaggle notebook:
+
+```bash
+!curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/cluster.sh | bash
+```
+
+The Leader notebook will initialize and display the complete control board:
+
+1. **Worker Join Commands**: Run each generated one-liner in secondary blank notebooks:
+   ```bash
+   !curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/worker.sh | bash -s -- --leader <tunnel-url> --token <worker-token> --name notebook-1
+   ```
+2. **Admin Command**: Connect from your laptop to manage models and view full cluster telemetry:
+   ```bash
+   cluster admin connect <leader-tunnel-url> --token <admin-token>
+   cluster ui
+   ```
+   The browser automatically opens `http://localhost:2424` with the live topology graph and node inspector.
+3. **Team Member Command**: Share with team members for inference access:
+   ```bash
+   cluster connect <leader-tunnel-url> --token <member-token>
+   ```
 
 ## CLI Reference
 
 ### Admin Commands
+
 ```bash
 # Authenticate as cluster administrator
 cluster admin connect <url> --token <token>
@@ -124,6 +146,7 @@ cluster ui [--port 2424] [--proxy-port 8080] [--no-browser]
 ```
 
 ### Team Member Commands
+
 ```bash
 # Authenticate as team member
 cluster connect <url> --token <token>
@@ -141,31 +164,48 @@ cluster status
 cluster version
 ```
 
----
-
 ## Transparent Proxy IDE Setup (Port 8080)
 
 All external tools connect to `http://127.0.0.1:8080`:
 
 * **Cursor IDE**:
-  * Settings -> Models -> Add Custom Model -> Model: `qwen2.5:14b` (or active model)
-  * OpenAI API Key: `cluster`
-  * Override Base URL: `http://127.0.0.1:8080/v1`
-* **Python OpenAI SDK**:
-  ```python
-  from openai import OpenAI
-  client = OpenAI(base_url="http://127.0.0.1:8080/v1", api_key="cluster")
-  response = client.chat.completions.create(
-      model="qwen2.5:14b",
-      messages=[{"role": "user", "content": "Explain quantum computing in one sentence."}],
-      stream=True
-  )
-  for chunk in response:
-      print(chunk.choices[0].delta.content or "", end="")
+  * Settings -> Models -> Add model:
+  * Model Name: `qwen2.5:14b` (or your deployed model)
+  * OpenAI Base URL: `http://localhost:8080/v1`
+
+* **VS Code (Continue Extension)**:
+  * Add to `~/.continue/config.json`:
+  ```json
+  {
+    "models": [
+      {
+        "title": "cluster Multi-GPU",
+        "provider": "openai",
+        "model": "qwen2.5:14b",
+        "apiBase": "http://localhost:8080/v1"
+      }
+    ]
+  }
   ```
 
----
+* **Open WebUI (Docker)**:
+  ```bash
+  docker run -d -p 3000:8080 --add-host=host.docker.internal:host-gateway -e OLLAMA_BASE_URL=http://host.docker.internal:8080 -v open-webui:/app/backend/data --name open-webui ghcr.io/open-webui/open-webui:main
+  ```
+
+## Security and Privacy
+
+1. **Cryptographic Token Gate**: Cloudflare Tunnel URLs are protected with unique Bearer tokens (`cluster-admin-...`, `cluster-member-...`, `cluster-sec-...`). Any unauthenticated request is rejected with 401 Unauthorized.
+2. **Encrypted in Transit**: All communication between your machine and cloud GPUs uses TLS 1.3 encryption.
+3. **Zero Inbound Ports on Cloud Notebooks**: Cloud notebooks make outbound connections only over Cloudflare secure tunnels; no static public IP or port forwarding required.
+
+## Testing
+
+Run the automated test suite:
+```bash
+python3 -m unittest discover tests -v
+```
 
 ## License
 
-MIT License. Designed with zero bloat and strictly vector SVG iconography.
+MIT (c) berlin-566

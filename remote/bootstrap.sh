@@ -25,4 +25,4 @@ curl -fsSL "$SERVER_URL" -o /tmp/cluster_server.py || {
 }
 
 # Run the supervisor
-python3 /tmp/cluster_server.py
+exec python3 /tmp/cluster_server.py "$@"

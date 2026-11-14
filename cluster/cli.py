@@ -41,9 +41,9 @@ def version() -> None:
     """Show installed version, channel, and update status."""
     print_version_details()
 
-# -------------------------------------------------------------
+# =============================================================
 # Admin Group & Commands
-# -------------------------------------------------------------
+# =============================================================
 @main.group()
 def admin() -> None:
     """Administrative cluster controls."""
@@ -88,9 +88,9 @@ def admin_connect(url: str, token: str) -> None:
     click.echo("  cluster cluster workers    - List worker nodes and reconnect commands")
     click.echo("  cluster ui                 - Launch Cortex.io-style matte-black web dashboard\n")
 
-# -------------------------------------------------------------
+# =============================================================
 # Member Connect & Status
-# -------------------------------------------------------------
+# =============================================================
 @main.command()
 @click.argument("url")
 @click.option("--token", "-t", default=None, help="Security Bearer token from Colab/Kaggle banner.")
@@ -163,9 +163,9 @@ def status() -> None:
     else:
         click.secho(f"Tunnel Status: OFFLINE / UNREACHABLE ({health.get('error')})", fg="red", bold=True)
 
-# -------------------------------------------------------------
+# =============================================================
 # Multi-Provider Fetch Command (cluster fetch <query>)
-# -------------------------------------------------------------
+# =============================================================
 @main.command()
 @click.argument("query")
 def fetch(query: str) -> None:
@@ -223,9 +223,9 @@ def fetch(query: str) -> None:
             update_config(last_model=model_name)
             click.secho(f"[OK] Deployed '{model_name}'!", fg="green")
 
-# -------------------------------------------------------------
+# =============================================================
 # Cluster Group (cluster cluster status, cluster cluster workers)
-# -------------------------------------------------------------
+# =============================================================
 @main.group("cluster")
 def cluster_group() -> None:
     """Inspect and manage the distributed multi-GPU cluster mesh."""
@@ -237,7 +237,7 @@ def cluster_status() -> None:
     client = ClusterClient()
     c_status = client.get_cluster_status()
 
-    click.secho("\n--- cluster Distributed GPU Mesh Status ---", fg="cyan", bold=True)
+    click.secho("\n=== cluster Distributed GPU Mesh Status ===", fg="cyan", bold=True)
     click.echo(f"Health Pill:      {c_status.get('status', 'HEALTHY').upper()}")
     click.echo(f"Latency:          {c_status.get('latency_ms', 0)} ms")
     click.echo(f"Worker Nodes:     {c_status.get('workers_count', 3)} Connected Workers + 1 Leader")
@@ -279,9 +279,9 @@ def cluster_workers() -> None:
     token = cfg.get("auth_token", "cluster-sec-worker")
     click.secho(f"!curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/remote/worker.sh | bash -s -- --leader {remote_url} --token {token}\n", fg="yellow")
 
-# -------------------------------------------------------------
+# =============================================================
 # Web UI Dashboard (cluster ui)
-# -------------------------------------------------------------
+# =============================================================
 @main.command()
 @click.option("--port", default=DEFAULT_HUB_PORT, help="Port for the Web Dashboard Hub (default: 2424).")
 @click.option("--proxy-port", default=DEFAULT_PROXY_PORT, help="Port for the Transparent API Proxy (default: 8080).")
@@ -322,9 +322,9 @@ def ui(port: int, proxy_port: int, no_browser: bool) -> None:
     except KeyboardInterrupt:
         click.echo("\n[STOP] Shutting down cluster UI and Proxy...")
 
-# -------------------------------------------------------------
+# =============================================================
 # Transparent Proxy (cluster proxy [--port 8080])
-# -------------------------------------------------------------
+# =============================================================
 @main.command()
 @click.option("--port", "-p", default=DEFAULT_PROXY_PORT, help=f"Local port to bind (default: {DEFAULT_PROXY_PORT}).")
 @click.option("--host", "-h", default="127.0.0.1", help="Local host to bind (default: 127.0.0.1).")
@@ -344,9 +344,9 @@ def proxy(port: int, host: str) -> None:
         click.secho(f"[ERROR] {e}", fg="red")
         sys.exit(1)
 
-# -------------------------------------------------------------
+# =============================================================
 # Chat & GPU
-# -------------------------------------------------------------
+# =============================================================
 @main.command()
 @click.argument("model", required=False)
 def chat(model: Optional[str]) -> None:
@@ -363,9 +363,9 @@ def gpu() -> None:
         sys.exit(1)
     display_gpu(stats)
 
-# -------------------------------------------------------------
+# =============================================================
 # Models Group (list, pull, rm)
-# -------------------------------------------------------------
+# =============================================================
 @main.group()
 def models() -> None:
     """Manage models installed on the remote cloud GPU."""
@@ -431,9 +431,9 @@ def models_rm(model_name: str) -> None:
         else:
             click.secho(f"[ERROR] Failed to delete '{model_name}'.", fg="red")
 
-# -------------------------------------------------------------
+# =============================================================
 # Notebook Group (colab, kaggle)
-# -------------------------------------------------------------
+# =============================================================
 @main.group()
 def notebook() -> None:
     """Launch or view cloud notebook setup instructions."""
@@ -456,9 +456,12 @@ def notebook_kaggle() -> None:
     click.secho("\nKaggle Setup (2x T4 GPUs = 32GB VRAM):", fg="cyan", bold=True)
     click.echo("1. Create a notebook on Kaggle (https://www.kaggle.com/code).")
     click.echo("2. Set Accelerator to 'GPU T4 x 2' and enable Internet toggle.")
-    click.echo("3. In the first code cell, paste and run:")
-    click.secho("   !curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/remote/bootstrap.sh | bash", fg="yellow")
-    click.echo("4. Follow the Leader control board instructions shown in output!\n")
+    click.echo("3. In the first code cell, choose your mode:")
+    click.echo("   Option A - Single GPU Host (Quick Start):")
+    click.secho("     !curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/single.sh | bash", fg="yellow")
+    click.echo("   Option B - Multi-Notebook GPU Mesh (Cluster Leader):")
+    click.secho("     !curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/cluster.sh | bash", fg="yellow")
+    click.echo("4. Copy the connection command shown in the notebook output into your local terminal!\n")
 
 if __name__ == "__main__":
     main()

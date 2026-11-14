@@ -547,92 +547,135 @@ def install_and_start_cloudflared():
     return tunnel_url, proc
 
 def main():
-    print("=======================================================")
-    print("  cluster: Multi-Notebook Distributed GPU Mesh")
-    print("  Primary Leader Coordinator")
-    print("=======================================================\n")
+    import argparse
+    parser = argparse.ArgumentParser(description="cluster Remote Cloud Runner")
+    parser.add_argument("--mode", choices=["cluster", "single"], default="cluster", help="Runner mode: single host or multi-notebook cluster")
+    parser.add_argument("--workers", type=int, default=None, help="Number of worker notebooks (cluster mode)")
+    args, _ = parser.parse_known_args()
 
-    # 1. Prompt for cluster dimensions
-    expected_workers = 3
-    if sys.stdin.isatty():
-        try:
-            dim_input = input("How many worker notebooks will participate in this cluster? [Default: 3]: ").strip()
-            if dim_input.isdigit() and int(dim_input) > 0:
-                expected_workers = int(dim_input)
-        except Exception:
-            pass
-    cluster_state["expected_workers"] = expected_workers
-    print(f"[PLAN] Initializing cluster mesh with 1 Leader + {expected_workers} Workers ({expected_workers + 1} Total GPUs)")
+    mode = args.mode
 
-    # 2. Local GPU Detection
-    gpu_info = get_gpu_info()
-    vram_mb = gpu_info.get("vram_total_mb", 0)
-    gpu_name = gpu_info.get("gpu_name", "N/A")
-    pooled_est_gb = ((vram_mb * (expected_workers + 1)) // 1024)
+    if mode == "single":
+        print("=======================================================")
+        print("  cluster: Single Cloud GPU Host")
+        print("=======================================================\n")
 
-    print(f"[GPU] Leader GPU: {gpu_name} ({vram_mb // 1024} GB VRAM)")
-    print(f"[MESH] Projected Pooled VRAM: ~{pooled_est_gb} GB across {expected_workers + 1} GPUs")
+        cluster_state["expected_workers"] = 0
+        gpu_info = get_gpu_info()
+        vram_mb = gpu_info.get("vram_total_mb", 0)
+        gpu_name = gpu_info.get("gpu_name", "N/A")
+        print(f"[GPU] Local GPU: {gpu_name} ({vram_mb // 1024} GB VRAM)")
 
-    # 3. Generate RBAC Tokens
-    hex_seed = secrets.token_hex(6)
-    cluster_state["admin_token"] = os.environ.get("CLUSTER_ADMIN_TOKEN") or f"cluster-admin-{hex_seed}"
-    cluster_state["member_token"] = os.environ.get("CLUSTER_MEMBER_TOKEN") or f"cluster-member-{hex_seed}"
-    cluster_state["worker_token"] = os.environ.get("CLUSTER_WORKER_TOKEN") or f"cluster-worker-{hex_seed}"
+        token = os.environ.get("CLUSTER_TOKEN") or f"cluster-sec-{secrets.token_hex(6)}"
+        cluster_state["admin_token"] = token
+        cluster_state["member_token"] = token
+        cluster_state["worker_token"] = token
 
-    # Pre-populate anticipated workers
-    for i in range(1, expected_workers + 1):
-        w_name = f"notebook-{i}"
-        cluster_state["workers"][w_name] = {
-            "name": w_name,
-            "gpu_name": "Tesla T4 (Awaiting Join)",
-            "vram_total_mb": 16384,
-            "vram_used_mb": 0,
-            "last_seen": time.time(),
-            "status": "WAITING_FOR_JOIN",
-            "ping_ms": 15,
-            "layers": "pending",
-        }
-    calculate_shards()
+        install_and_start_ollama()
+        start_auth_proxy()
+        print(f"[AUTH] Protected proxy active on port {PROXY_PORT}")
 
-    # 4. Start Local Engine
-    install_and_start_ollama()
+        tunnel_url, _ = install_and_start_cloudflared()
+        cluster_state["tunnel_url"] = tunnel_url
 
-    # 5. Start Supervisor & Proxy
-    start_auth_proxy()
-    print(f"[AUTH] Protected proxy active on port {PROXY_PORT}")
+        print("\n" + "=" * 64)
+        print("          cluster SINGLE HOST READY")
+        print("=" * 64)
+        print(f"Cloud GPU:       {gpu_name} ({vram_mb // 1024} GB VRAM)")
+        print(f"Tunnel URL:      {tunnel_url}")
+        print(f"Security Token:  {token}")
+        print("\nRun this command on your laptop:")
+        print(f"  cluster connect {tunnel_url} --token {token}\n")
+        print("Next steps on your machine:")
+        print("  cluster proxy       (start local bridge on http://127.0.0.1:8080)")
+        print("  cluster chat        (interactive terminal chat)")
+        print("  cluster ui          (open web dashboard on http://localhost:2424)")
+        print("=" * 64 + "\n")
 
-    # 6. Start Cloudflare Tunnel
-    tunnel_url, _ = install_and_start_cloudflared()
-    cluster_state["tunnel_url"] = tunnel_url
+    else:
+        print("=======================================================")
+        print("  cluster: Multi-Notebook Distributed GPU Mesh")
+        print("  Primary Leader Coordinator")
+        print("=======================================================\n")
 
-    # 7. Start 3s Heartbeat Watchdog
-    start_heartbeat_watchdog()
+        expected_workers = args.workers
+        if expected_workers is None:
+            env_workers = os.environ.get("CLUSTER_EXPECTED_WORKERS")
+            if env_workers and env_workers.isdigit():
+                expected_workers = int(env_workers)
+            elif sys.stdin.isatty():
+                try:
+                    dim_input = input("How many worker notebooks will participate in this cluster? [Default: 3]: ").strip()
+                    if dim_input.isdigit() and int(dim_input) > 0:
+                        expected_workers = int(dim_input)
+                except Exception:
+                    pass
+        if not expected_workers or expected_workers <= 0:
+            expected_workers = 3
 
-    # 8. Display Leader Control Board
-    print("\n" + "=" * 64)
-    print("          cluster LEADER CONTROL BOARD")
-    print("=" * 64)
-    print(f"Tunnel URL:        {tunnel_url}")
-    print(f"Cluster Capacity:  1 Leader + {expected_workers} Workers ({expected_workers + 1}x GPUs, ~{pooled_est_gb}GB Pooled VRAM)")
-    print("\n--- 1. WORKER JOIN COMMANDS (Run each in a blank notebook) ---")
-    for i in range(1, expected_workers + 1):
-        w_name = f"notebook-{i}"
-        cmd = f"!curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/remote/worker.sh | bash -s -- --leader {tunnel_url} --token {cluster_state['worker_token']} --name {w_name}"
-        print(f"[{w_name}]:\n  {cmd}\n")
+        cluster_state["expected_workers"] = expected_workers
+        print(f"[PLAN] Initializing cluster mesh with 1 Leader + {expected_workers} Workers ({expected_workers + 1} Total GPUs)")
 
-    print("--- 2. ADMIN / LEADER COMMAND (Run on your laptop) ---")
-    print(f"  cluster admin connect {tunnel_url} --token {cluster_state['admin_token']}\n")
+        gpu_info = get_gpu_info()
+        vram_mb = gpu_info.get("vram_total_mb", 0)
+        gpu_name = gpu_info.get("gpu_name", "N/A")
+        pooled_est_gb = ((vram_mb * (expected_workers + 1)) // 1024)
 
-    print("--- 3. TEAM MEMBER COMMAND (Share with team for inference) ---")
-    print(f"  cluster connect {tunnel_url} --token {cluster_state['member_token']}\n")
-    print("=" * 64 + "\n")
+        print(f"[GPU] Leader GPU: {gpu_name} ({vram_mb // 1024} GB VRAM)")
+        print(f"[MESH] Projected Pooled VRAM: ~{pooled_est_gb} GB across {expected_workers + 1} GPUs")
+
+        hex_seed = secrets.token_hex(6)
+        cluster_state["admin_token"] = os.environ.get("CLUSTER_ADMIN_TOKEN") or f"cluster-admin-{hex_seed}"
+        cluster_state["member_token"] = os.environ.get("CLUSTER_MEMBER_TOKEN") or f"cluster-member-{hex_seed}"
+        cluster_state["worker_token"] = os.environ.get("CLUSTER_WORKER_TOKEN") or f"cluster-worker-{hex_seed}"
+
+        for i in range(1, expected_workers + 1):
+            w_name = f"notebook-{i}"
+            cluster_state["workers"][w_name] = {
+                "name": w_name,
+                "gpu_name": "Tesla T4 (Awaiting Join)",
+                "vram_total_mb": 16384,
+                "vram_used_mb": 0,
+                "last_seen": time.time(),
+                "status": "WAITING_FOR_JOIN",
+                "ping_ms": 15,
+                "layers": "pending",
+            }
+        calculate_shards()
+
+        install_and_start_ollama()
+        start_auth_proxy()
+        print(f"[AUTH] Protected proxy active on port {PROXY_PORT}")
+
+        tunnel_url, _ = install_and_start_cloudflared()
+        cluster_state["tunnel_url"] = tunnel_url
+
+        start_heartbeat_watchdog()
+
+        print("\n" + "=" * 64)
+        print("          cluster LEADER CONTROL BOARD")
+        print("=" * 64)
+        print(f"Tunnel URL:        {tunnel_url}")
+        print(f"Cluster Capacity:  1 Leader + {expected_workers} Workers ({expected_workers + 1}x GPUs, ~{pooled_est_gb}GB Pooled VRAM)")
+        print("\n[1] WORKER JOIN COMMANDS (Run each in a blank notebook):")
+        for i in range(1, expected_workers + 1):
+            w_name = f"notebook-{i}"
+            cmd = f"!curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/worker.sh | bash -s -- --leader {tunnel_url} --token {cluster_state['worker_token']} --name {w_name}"
+            print(f"  {w_name}:\n    {cmd}\n")
+
+        print("[2] ADMIN / LEADER COMMAND (Run on your laptop):")
+        print(f"  cluster admin connect {tunnel_url} --token {cluster_state['admin_token']}\n")
+
+        print("[3] TEAM MEMBER COMMAND (Share with team for inference):")
+        print(f"  cluster connect {tunnel_url} --token {cluster_state['member_token']}\n")
+        print("=" * 64 + "\n")
 
     # Keepalive loop
     try:
         while True:
             time.sleep(60)
     except KeyboardInterrupt:
-        print("\n[STOP] Shutting down cluster Leader coordinator...")
+        print("\n[STOP] Shutting down cluster host...")
 
 if __name__ == "__main__":
     main()
