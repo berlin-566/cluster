@@ -4,69 +4,95 @@
 
 ### 1. Vision and Objective
 
-The objective of cluster Distributed Mesh is to pool multiple ephemeral cloud notebook runtimes (Google Colab, Kaggle, and user-provided cloud GPU environments) into a unified, high-throughput, and fault-tolerant inference cluster.
+The objective of cluster Distributed Mesh is to pool multiple ephemeral cloud notebook runtimes (Google Colab, Kaggle, and team member GPU instances) into an orchestrated, high-throughput, and fault-tolerant inference cluster.
 
 Key targets:
-* Scale aggregate token generation throughput linearly (for example, aggregating 3-4 nodes yielding 150 tokens/sec each to deliver 450+ tokens/sec across concurrent streams).
-* Enable team-wide shared access across 15-16 member accounts with transparent load balancing, rate limiting, and unified API keys.
-* Support deployment of large foundation models (such as GLM, DeepSeek-R1, and 70B+ parameter models) across multiple nodes using distributed sharding or pipelining.
-* Provide dynamic elasticity and self-healing when ephemeral cloud notebooks restart, sleep, or exhaust runtime allocations.
+* Linear Throughput Scaling: Aggregate 3-4 worker notebooks generating 150 tokens/sec each to deliver 450+ tokens/sec across concurrent streams.
+* Team-Wide Shared Inference: Enable 15-16 team members to seamlessly access the cluster through standardized CLI commands (`cluster chat`, `cluster proxy`) and standard API endpoints.
+* Large Model Distributed Execution: Support models exceeding single-GPU memory capacity (such as DeepSeek v4/R1, GLM, and 70B+ parameter models) across multiple nodes using distributed pipeline sharding.
+* Single-Command Notebook Orchestration: A Leader Notebook generates dedicated one-liner commands for all worker notebooks, admin control, and team members.
 
-### 2. Architecture and Core Topology
+### 2. Leader Notebook Orchestration Workflow
 
-The system comprises three primary planes:
+The entire cluster lifecycle is initialized and coordinated from a Primary Leader Notebook.
 
-#### A. Coordinator and Gateway Plane (Control Plane)
-* Ingress API: Serves standard Ollama and OpenAI-compatible endpoints (`/v1/chat/completions`, `/api/generate`, `/api/chat`) for local developer tools, IDE extensions (Cursor, VS Code), and team web UIs.
-* Node Registry: Tracks registered notebook worker instances, their active GPU hardware (Tesla T4, 2x T4, A100, L4), memory headroom, active model weights, and round-trip ping latency.
-* Smart Scheduler / Router: Routes incoming prompts and token streams according to scheduling policies:
-  * Least-connections / Queue-depth aware routing
-  * Model-affinity routing
-  * Speculative or sharded pipeline streaming
-* Health and Keepalive Monitor: Actively probes worker heartbeats and automatically evicts dead nodes without dropping in-flight user prompts (prompt replay on backup node).
+#### 2.1 Initialization Flow
+1. The cluster lead opens the Leader Notebook on Google Colab or Kaggle.
+2. The user runs the bootstrap cell. The script prompts for cluster dimensions:
+   "How many worker notebooks will participate in this cluster? [Default: 3]"
+3. The Leader Notebook establishes its Cloudflare Tunnel and displays a clean control board with generated command links:
+   * Worker Join Links (notebook-1, notebook-2, ... notebook-N):
+     One-line commands to copy and paste into secondary worker notebooks.
+   * Admin / Leader Link:
+     Command for the team lead laptop to deploy models and manage the cluster:
+     `cluster admin connect <leader-tunnel-url> --token <admin-token>`
+   * Team Member Link:
+     Command shared with team members for inference access:
+     `cluster connect <leader-tunnel-url> --token <member-token>`
 
-#### B. Worker Node Plane (Compute Plane)
-* Deployed inside Google Colab or Kaggle instances.
-* Runs lightweight supervisor daemon connected via secure Cloudflare or Tailscale mesh tunnels.
-* Worker Execution Engine:
-  * Mode 1 (Replicated / High Throughput): Each node runs an independent instance of a model; requests are load-balanced to achieve aggregate token output (3x 150 t/s = 450 t/s total throughput).
-  * Mode 2 (Model Sharding / Pipeline Parallelism): Large models (e.g. 70B+ or large GLM models) are partitioned across 2-4 nodes via pipeline parallelism (similar to Petals or Exo architecture), allowing models that exceed single-GPU VRAM to load and execute across nodes.
+#### 2.2 Role-Based Access Control (RBAC)
+* Leader / Admin Role:
+  * Full cluster management.
+  * Can trigger model pulls across all worker nodes (`cluster models pull <model>`).
+  * Can configure execution mode (Replicated vs Pipeline Sharded).
+  * Can view live GPU, VRAM, and latency metrics across every node.
+* Team Member Role:
+  * Inference access only (`cluster chat`, `cluster proxy`).
+  * Cannot delete or trigger unauthorized large model downloads that could saturate network bandwidth.
+  * Token-bucket rate limiting and fair-share queueing.
+* Worker Node Role:
+  * Executes computation jobs assigned by the Leader.
+  * Periodically sends GPU telemetry and health heartbeats.
 
-#### C. Multi-Tenant and Team Layer
-* Team Authentication: User/team tokens and API keys.
-* Fair Share Scheduling: Prevents a single team member from starving cluster capacity during batch generation.
-* Usage and VRAM Telemetry: Live dashboard displaying cluster health, aggregate tokens per second, and active nodes.
+### 3. Architecture and Core Topology
 
-### 3. Functional Requirements
+The system comprises three primary layers:
 
-#### 3.1 Node Registration and Discovery
-* Worker nodes register with the coordinator using a single command or notebook execution cell.
-* Registration payload contains GPU specifications, total VRAM, installed model tags, and secure tunnel URL.
-* Node authentication token ensures only authorized workers join the cluster.
+#### A. Leader Node (Central Coordinator)
+* Ingress Gateway: Exposes public Cloudflare Tunnel serving both Admin management APIs and Member inference APIs.
+* Worker Registry: Tracks connected worker notebooks (`notebook-1`, `notebook-2`, etc.), active GPU hardware, VRAM headroom, and round-trip ping latency.
+* Scheduler and Dispatcher:
+  * Replicated Mode: Load balances incoming inference requests across available workers using least-connections and latency weighting, multiplying aggregate generation throughput.
+  * Sharded Pipeline Mode: Partitions large model layers across the mesh (Leader + Workers) for models that do not fit into a single GPU.
+* Prompt Resiliency and Failover: If a worker notebook disconnects or times out mid-generation, the Leader automatically re-routes the prompt to an active replica.
 
-#### 3.2 Request Routing and Streaming
-* Transparent proxying of streaming Server-Sent Events (SSE) and unbuffered chunked HTTP transfers.
-* Automatic retry and failover: If a worker node disconnects during generation, the coordinator fails over to an available node.
+#### B. Worker Nodes (Compute Units)
+* Run on individual Colab or Kaggle instances.
+* Paste one-liner from the Leader board to join (`curl ... | bash -s -- --join <leader-url> --token <worker-token> --name notebook-X`).
+* Worker auto-reports its GPU hardware (e.g. Tesla T4 16GB, 2x T4 32GB) and establishes a low-latency reverse communication channel with the Leader.
 
-#### 3.3 Model Synchronization
-* Coordinator can dispatch cluster-wide model pull commands (`cluster cluster models pull <name>`).
-* Workers download models in parallel from Ollama registry or HuggingFace caches.
+#### C. Local Client & Developer Integration
+* Team members run `cluster connect <leader-url> --token <member-token>` on their laptops.
+* Local proxy binds to `127.0.0.1:11434`.
+* Any application (Cursor, VS Code Continue, Open WebUI, Chatbox, or Python SDK) interacts with the cluster as if it were a single ultra-fast local Ollama instance.
 
-#### 3.4 Multi-User Quota and Concurrency
-* Support for concurrent team requests with priority queuing.
-* Graceful queuing when all nodes are at maximum compute saturation.
+### 4. Functional Requirements
 
-### 4. Non-Functional Requirements
+#### 4.1 Automated Worker Pairing
+* Worker commands generated by the Leader are pre-authenticated with unique node pairing tokens.
+* When a worker notebook executes its command, the Leader displays real-time connection status on its dashboard.
 
-* Latency Overhead: Coordinator routing overhead must be under 5 milliseconds per request.
-* Zero Open Ports: Workers communicate via outbound secure tunnels, requiring no static public IP or port forwarding on worker nodes.
-* Resiliency: Ephemeral notebook drops must not crash the local proxy or interrupt other active worker streams.
-* Security: End-to-end TLS encryption with mutual authentication tokens between coordinator and workers.
-* No External Cloud Costs: Entire mesh operates using free cloud runtimes (Colab, Kaggle) and free tier tunnel services.
+#### 4.2 Distributed Model Pulling
+* Admin triggers model pull: `cluster models pull qwen2.5:14b`.
+* In Replicated Mode, the Leader broadcasts the download command to all worker nodes simultaneously so all nodes mirror the model weights.
+* In Sharded Mode, the Leader partitions model weight slices to each worker node according to available VRAM.
 
-### 5. Implementation Roadmap
+#### 4.3 Fair-Share Concurrency and Queuing
+* When multiple team members make simultaneous requests, the Leader queues and distributes prompts across workers.
+* Streaming responses are piped directly back to the requesting member with zero buffering.
 
-* Phase 1: Multi-node Load Balancer & Health Orchestration (Replicated Mode for 450+ t/s throughput across 3-4 nodes).
-* Phase 2: Multi-tenant Team Gateway with API key management and fair-share queue.
-* Phase 3: Distributed Model Sharding (Pipeline Parallelism across WAN) for massive models exceeding single-node VRAM.
-* Phase 4: Cluster Management TUI and Web Telemetry Dashboard.
+### 5. Non-Functional Requirements
+
+* Scalability: Seamlessly scales from 2 notebooks up to 16+ notebook instances.
+* Latency Overhead: Leader dispatch overhead under 10 milliseconds.
+* Zero Firewall Config: Pure outbound HTTPS/Cloudflare tunnel connectivity on all nodes.
+* Graceful Degradation: If 1 out of 4 notebooks disconnects, the cluster continues operating at 3/4 capacity without crashing.
+* Cost: 100% free tier infrastructure compatible (Google Colab free T4, Kaggle free 2x T4).
+
+### 6. Implementation Milestones
+
+* Milestone 1: Leader Coordinator core with interactive node count prompt and dynamic one-liner command board generator.
+* Milestone 2: Worker join agent with heartbeat telemetry and auto-registration.
+* Milestone 3: Replicated multi-node load balancer with live prompt routing and failover.
+* Milestone 4: Admin CLI commands (`cluster cluster status`, `cluster cluster pull`).
+* Milestone 5: Sharded pipeline execution for models exceeding single-node memory.
