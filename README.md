@@ -71,18 +71,18 @@ Optional: Check the PERSIST_TO_GOOGLE_DRIVE checkbox in Colab to keep downloaded
    ```
 5. Copy the generated `host-it connect ...` command.
 
-### Step 2: Install host-it Locally
+### Step 2: Install host-it on Your Desktop / Laptop
 
-Install the lightweight local CLI:
+Run this 1-line command in your local terminal:
 ```bash
-git clone https://github.com/berlin-566/host-it.git
-cd host-it
-pip install -e .
+curl -fsSL https://raw.githubusercontent.com/berlin-566/host-it/main/desktop.sh | bash
 ```
 
-Or run without installing using Python:
+Or manually clone and install:
 ```bash
-python3 -m host_it --help
+git clone https://github.com/berlin-566/host-it.git ~/.local/share/host-it
+cd ~/.local/share/host-it
+pip install -e .
 ```
 
 ### Step 3: Connect to Cloud Host
