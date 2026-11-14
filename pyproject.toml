@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "host-it"
+version = "0.1.0"
+description = "Cloud-to-Local LLM Bridge: Host Ollama models on Colab/Kaggle and use them locally with zero hassle."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [
+    { name = "berlin-566" }
+]
+keywords = ["ollama", "llm", "google-colab", "kaggle", "gpu", "tunnel", "ai"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "httpx>=0.24.0",
+    "click>=8.0.0",
+]
+
+[project.optional-dependencies]
+rich = ["rich>=12.0.0"]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+]
+
+[project.scripts]
+host-it = "host_it.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["host_it*"]
