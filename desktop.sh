@@ -17,10 +17,10 @@ BIN_DIR="$HOME/.local/bin"
 VENV_DIR="$INSTALL_DIR/.venv"
 mkdir -p "$BIN_DIR"
 
-# Migrate old host-it install directory if present
-if [ -d "$HOME/.local/share/host-it" ] && [ ! -d "$INSTALL_DIR" ]; then
-    echo "[MIGRATE] Migrating legacy ~/.local/share/host-it to $INSTALL_DIR..."
-    mv "$HOME/.local/share/host-it" "$INSTALL_DIR"
+# Clean up legacy host-it directory if present
+if [ -d "$HOME/.local/share/host-it" ]; then
+    echo "[CLEANUP] Removing legacy host-it directory..."
+    rm -rf "$HOME/.local/share/host-it"
 fi
 
 IS_UPDATE=0
@@ -44,6 +44,14 @@ if command -v git &> /dev/null; then
 else
     mkdir -p "$INSTALL_DIR"
     curl -fsSL https://github.com/berlin-566/cluster/archive/refs/heads/main.tar.gz | tar -xz -C "$INSTALL_DIR" --strip-components=1
+fi
+
+# Rebuild virtual environment if missing or if python3 interpreter is broken (e.g. from relocated dir)
+if [ -d "$VENV_DIR" ]; then
+    if ! "$VENV_DIR/bin/python3" --version &> /dev/null; then
+        echo "[SETUP] Rebuilding virtual environment..."
+        rm -rf "$VENV_DIR"
+    fi
 fi
 
 if [ ! -d "$VENV_DIR" ]; then
