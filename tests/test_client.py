@@ -41,6 +41,30 @@ class MockCloudServer(BaseHTTPRequestHandler):
 
         self._send_json(404, b'{"error": "not found"}')
 
+    def do_POST(self):
+        auth = self.headers.get("Authorization", "")
+        if auth != f"Bearer {self.auth_token}":
+            self._send_json(401, b'{"error": "unauthorized"}')
+            return
+
+        if self.path == "/api/pull":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-ndjson")
+            self.send_header("Transfer-Encoding", "chunked")
+            self.end_headers()
+            chunks = [
+                b'{"status": "pulling manifest"}\n',
+                b'{"status": "downloading", "completed": 100, "total": 200}\n',
+                b'{"status": "success"}\n',
+            ]
+            for c in chunks:
+                self.wfile.write(f"{len(c):X}\r\n".encode("latin-1") + c + b"\r\n")
+                self.wfile.flush()
+            self.wfile.write(b"0\r\n\r\n")
+            self.wfile.flush()
+            return
+        self._send_json(404, b'{"error": "not found"}')
+
 class TestClient(unittest.TestCase):
     def test_client_url_formatting(self):
         c1 = HostItClient(remote_url="my-tunnel.trycloudflare.com/", auth_token="tok")
@@ -84,6 +108,14 @@ class TestClient(unittest.TestCase):
             models = client.list_models()
             self.assertEqual(len(models), 1)
             self.assertEqual(models[0]["name"], "qwen2.5:14b")
+
+            # Test pull model streaming
+            statuses = []
+            ok, err = client.pull_model("qwen2.5:0.5b", progress_callback=lambda d: statuses.append(d.get("status")))
+            self.assertTrue(ok)
+            self.assertEqual(err, "")
+            self.assertIn("pulling manifest", statuses)
+            self.assertIn("success", statuses)
 
             # Invalid token
             bad_client = HostItClient(remote_url=f"http://127.0.0.1:{port}", auth_token="wrong-token")

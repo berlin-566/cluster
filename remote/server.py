@@ -22,6 +22,18 @@ import threading
 INTERNAL_OLLAMA_PORT = 11435
 PROXY_PORT = 8080
 
+HOP_BY_HOP = {
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailers",
+    "transfer-encoding",
+    "upgrade",
+    "host",
+}
+
 def ensure_system_dependencies():
     """Ensure required system tools like zstd and curl are available."""
     if not shutil.which("zstd"):
@@ -230,7 +242,7 @@ class AuthProxyHandler(BaseHTTPRequestHandler):
         try:
             out_headers = {}
             for h, v in self.headers.items():
-                if h.lower() not in ("host", "authorization"):
+                if h.lower() not in ("host", "authorization", "content-length"):
                     out_headers[h] = v
             out_headers["Host"] = f"127.0.0.1:{INTERNAL_OLLAMA_PORT}"
 
@@ -240,10 +252,11 @@ class AuthProxyHandler(BaseHTTPRequestHandler):
             self.send_response(resp.status, resp.reason)
             is_chunked = False
             for h, v in resp.getheaders():
-                if h.lower() not in ("connection", "keep-alive"):
-                    self.send_header(h, v)
-                if h.lower() == "transfer-encoding" and "chunked" in v.lower():
+                lower_h = h.lower()
+                if lower_h == "transfer-encoding" and "chunked" in v.lower():
                     is_chunked = True
+                elif lower_h not in HOP_BY_HOP:
+                    self.send_header(h, v)
             
             self.send_header("Access-Control-Allow-Origin", "*")
 
