@@ -18,19 +18,7 @@ def get_install_dir() -> Path:
     return curr
 
 def get_local_commit(install_dir: Path) -> str:
-    # Try install_info file first
-    info_file = install_dir / ".install_info"
-    if info_file.exists():
-        try:
-            with open(info_file, "r") as f:
-                data = json.load(f)
-                commit = data.get("commit")
-                if commit:
-                    return commit[:7]
-        except Exception:
-            pass
-
-    # Try git
+    # 1. If git repository is present, check real-time git commit
     if (install_dir / ".git").exists():
         try:
             res = subprocess.check_output(
@@ -40,6 +28,18 @@ def get_local_commit(install_dir: Path) -> str:
             ).strip()
             if res:
                 return res
+        except Exception:
+            pass
+
+    # 2. Try install_info file fallback
+    info_file = install_dir / ".install_info"
+    if info_file.exists():
+        try:
+            with open(info_file, "r") as f:
+                data = json.load(f)
+                commit = data.get("commit")
+                if commit:
+                    return commit[:7]
         except Exception:
             pass
 
