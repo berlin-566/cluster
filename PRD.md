@@ -14,7 +14,7 @@ Key targets:
 * Dual-Port Architecture:
   * Port 2424: Core Hub Engine and Cortex.io-style Matte-Black Web Dashboard.
   * Port 8080: Transparent API Proxy ingress; all client tools (Cursor, VS Code, Open WebUI) connect to 8080, which routes through the 2424 Hub for live traffic telemetry and mesh visualization.
-* Single-Command Notebook Orchestration: A Leader Notebook generates dedicated one-liner commands for all worker notebooks, admin control, and team members.
+* Zero-Dependency Embedded Frontend: 100% self-contained HTML5, modern CSS, reactive JS, and vector SVGs bundled directly into the Python package with zero Node.js/npm requirements.
 * Resilient Hot-Reconnection: If a worker notebook disconnects due to Colab timeout, prompts are held in a queue while the Leader alerts the Admin with the exact command to re-paste in a fresh cell without restarting the cluster.
 
 ### 2. Leader Notebook Orchestration Workflow
@@ -76,7 +76,7 @@ The entire cluster lifecycle is initialized and coordinated from a Primary Leade
 * Heartbeat Monitoring: The Leader monitors worker RPC health every 3 seconds.
 * Disconnect Handling: If a worker notebook disconnects (e.g. Colab timeout or browser close):
   * Active prompts are paused in an in-memory queue.
-  * The Leader console and Admin CLI print an urgent reconnect banner:
+  * The Leader console, Admin CLI, and Web Dashboard show an urgent reconnect alert:
     `[ALERT] notebook-2 disconnected. Run this one-liner in a fresh cell to restore cluster: <command>`
   * Once re-pasted, the worker rejoins, RPC reconnects, and queued generation resumes seamlessly without cluster restart.
 
@@ -106,11 +106,13 @@ The desktop dashboard operates as a lightweight, zero-dependency browser-based c
 #### 3.3 Visual Layout and Hierarchy
 * Top Header Bar:
   * Top Left: `cluster` wordmark, geometric SVG emblem, active model badge, and live cluster health pill (`HEALTHY`, `SYNCING`, `DEGRADED`).
-  * Center/Right: Live Mesh Topology Graph Widget:
-    * Visual node hub displaying the Leader notebook at center.
-    * Radiating dynamic links to active Worker notebooks (`notebook-1`, `notebook-2`, etc.) with throughput pulse animations indicating live token generation.
-    * Active team member connection count badge.
-  * Controls: Dual-mode toggle (Admin Mode vs User Mode) and Theme Switcher (Dark/Light).
+  * Center/Right: Live Mesh Topology Graph:
+    * Central hub node for the Leader notebook (showing GPU type and assigned layers).
+    * Radiating dynamic links to connected Worker notebooks (`notebook-1`, `notebook-2`, etc.).
+    * Animated pulse beams traveling along links during token generation representing activation streaming.
+    * Interactive hover cards revealing VRAM utilization, GPU temperature, and ping.
+    * Active client / team member connection count badge.
+  * Header Controls: Dual-mode toggle (Admin Mode vs User Mode) and Theme Switcher (Dark/Light).
 * Left Navigation Sidebar:
   * Home / Dashboard: Quick telemetry overview, total cluster tokens/second gauge, aggregate VRAM utilization meter, and 1-click proxy start/stop button.
   * Clusters Overview: Interactive node catalog. Clicking any notebook reveals hardware specs, allocated vs free VRAM, assigned transformer layers, GPU temperature, and round-trip ping.
@@ -161,6 +163,6 @@ The desktop dashboard operates as a lightweight, zero-dependency browser-based c
 * Milestone 2: Worker join script launching high-performance llama.cpp RPC backend.
 * Milestone 3: Interactive multi-provider model search and download engine (`cluster fetch`).
 * Milestone 4: Dual-port runtime architecture (Port 2424 Hub Engine + Port 8080 Proxy Bridge).
-* Milestone 5: Cortex.io-style Matte-Black Web Dashboard (HTML/CSS/SVG, Live Mesh Graph, Node Inspector).
+* Milestone 5: Cortex.io-style Matte-Black Web Dashboard (HTML5, CSS, SVG, Live Mesh Topology Graph, Node Inspector).
 * Milestone 6: Dual-Mode Persona UI (Admin deployment dashboard + Member chat playground).
 * Milestone 7: Telemetry streaming bus and fair-share team queue.
