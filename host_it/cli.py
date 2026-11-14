@@ -137,12 +137,14 @@ def models_pull(model_name: str) -> None:
             last_status = status
             click.echo(f"\n[host-it] {status}")
 
-    ok = client.pull_model(model_name, progress_callback=on_progress)
+    ok, err_msg = client.pull_model(model_name, progress_callback=on_progress)
     if ok:
         update_config(last_model=model_name)
         click.secho(f"\n[OK] Successfully pulled '{model_name}'!", fg="green", bold=True)
     else:
-        click.secho(f"\n[ERROR] Failed to pull '{model_name}'.", fg="red")
+        err = err_msg or "Model not found or network connection failed"
+        click.secho(f"\n[ERROR] Failed to pull '{model_name}': {err}", fg="red")
+        click.echo("Check available model names and tags at: https://ollama.com/library")
         sys.exit(1)
 
 @models.command("rm")

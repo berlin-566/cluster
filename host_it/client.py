@@ -1,6 +1,6 @@
 import json
 import time
-from typing import Any, Callable, Dict, Generator, List, Optional
+from typing import Any, Callable, Dict, Generator, List, Optional, Tuple
 import urllib.request
 import urllib.error
 
@@ -107,27 +107,37 @@ class HostItClient:
         except Exception:
             return []
 
-    def pull_model(self, model_name: str, progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None) -> bool:
+    def pull_model(self, model_name: str, progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None) -> Tuple[bool, str]:
         """Pull a model on the remote cloud host, streaming status updates."""
         url = f"{self.remote_url}/api/pull"
         headers = self._get_headers()
         body = json.dumps({"name": model_name, "stream": True}).encode("utf-8")
+        last_error = ""
 
         try:
             if HAS_HTTPX:
                 with httpx.Client(timeout=httpx.Timeout(self.timeout, read=600.0), follow_redirects=True, trust_env=False) as client:
                     with client.stream("POST", url, headers=headers, content=body) as resp:
                         if resp.status_code != 200:
-                            return False
+                            err_text = resp.read().decode("utf-8", errors="ignore")
+                            try:
+                                err_json = json.loads(err_text)
+                                return False, err_json.get("error", err_text)
+                            except Exception:
+                                return False, f"HTTP {resp.status_code}: {err_text}"
                         for line in resp.iter_lines():
                             if line.strip():
                                 try:
                                     status_data = json.loads(line)
+                                    if "error" in status_data:
+                                        last_error = status_data["error"]
                                     if progress_callback:
                                         progress_callback(status_data)
                                 except json.JSONDecodeError:
                                     pass
-                return True
+                if last_error:
+                    return False, last_error
+                return True, ""
             else:
                 req = urllib.request.Request(url, data=body, headers=headers, method="POST")
                 with urllib.request.urlopen(req, timeout=600.0) as resp:
@@ -136,13 +146,23 @@ class HostItClient:
                         if decoded:
                             try:
                                 status_data = json.loads(decoded)
+                                if "error" in status_data:
+                                    last_error = status_data["error"]
                                 if progress_callback:
                                     progress_callback(status_data)
                             except json.JSONDecodeError:
                                 pass
-                return True
-        except Exception:
-            return False
+                if last_error:
+                    return False, last_error
+                return True, ""
+        except urllib.error.HTTPError as e:
+            try:
+                err_data = json.loads(e.read().decode("utf-8"))
+                return False, err_data.get("error", str(e))
+            except Exception:
+                return False, str(e)
+        except Exception as e:
+            return False, str(e)
 
     def delete_model(self, model_name: str) -> bool:
         """Delete a model on the remote host."""
