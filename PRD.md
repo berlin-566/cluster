@@ -15,6 +15,7 @@ Key targets:
   * Port 2424: Core Hub Engine and Cortex.io-style Matte-Black Web Dashboard.
   * Port 8080: Transparent API Proxy ingress; all client tools (Cursor, VS Code, Open WebUI) connect to 8080, which routes through the 2424 Hub for live traffic telemetry and mesh visualization.
 * Zero-Dependency Embedded Frontend: 100% self-contained HTML5, modern CSS, reactive JS, and vector SVGs bundled directly into the Python package with zero Node.js/npm requirements.
+* Automatic UI Launch: Running `cluster ui` boots the 2424 Hub, binds the 8080 proxy, and automatically opens the user's default browser (with `--no-browser` option for headless environments).
 * Resilient Hot-Reconnection: If a worker notebook disconnects due to Colab timeout, prompts are held in a queue while the Leader alerts the Admin with the exact command to re-paste in a fresh cell without restarting the cluster.
 
 ### 2. Leader Notebook Orchestration Workflow
@@ -53,7 +54,7 @@ The entire cluster lifecycle is initialized and coordinated from a Primary Leade
   * Hugging Face Hub (verified GGUF publishers such as bartowski, Qwen, DeepSeek, TheBloke)
 * Interactive Terminal & UI Picker:
   * Displays model name, provider, quantization level (Q4_K_M, Q5_K_M, Q8_0), file size, and VRAM fit indicator.
-  * Allows user to select by index or click to deploy.
+  * Allows user to select by index or click to deploy directly from the browser UI.
 * High-Speed Multi-Threaded Download:
   * Leader downloads the chosen GGUF at Colab/Kaggle datacenter speeds (300MB/s - 1GB/s) using parallel chunk streaming.
   * Once downloaded, Leader immediately distributes layer shards across the worker RPC pool.
@@ -88,6 +89,7 @@ The desktop dashboard operates as a lightweight, zero-dependency browser-based c
 * Port 2424 (Central Hub & Web Dashboard):
   * Serves the Cortex.io-style matte-black single page application.
   * Hosts the local WebSocket telemetry bus pushing real-time GPU stats, token speeds, and node connectivity states.
+  * Automatically opens default browser on launch via `cluster ui`.
   * Manages configuration, model deployment triggers, and cluster connection logic.
 * Port 8080 (Transparent Proxy Ingress):
   * Binds to `http://127.0.0.1:8080`.
@@ -121,6 +123,10 @@ The desktop dashboard operates as a lightweight, zero-dependency browser-based c
   * Settings & Tunnels: Cloudflare tunnel status, custom proxy port configuration, security tokens, and diagnostic log stream.
 
 #### 3.4 Dual-Mode Persona Experience
+* Automatic Token Detection:
+  * When connected via an Admin token, the dashboard boots into full Admin Mode with all deployment and node management controls enabled.
+  * Admins have a header toggle: "Preview Member View" to view exactly what team members experience.
+  * When connected via a Member token, the dashboard locks into streamlined Member Mode with administrative controls hidden.
 * Admin Mode:
   * Full cluster management capabilities.
   * Model deployment and sharding orchestration.
@@ -140,7 +146,7 @@ The desktop dashboard operates as a lightweight, zero-dependency browser-based c
 * `cluster gpu`: Live multi-node GPU dashboard with pooled VRAM telemetry.
 * `cluster cluster status`: Comprehensive cluster health and latency report.
 * `cluster cluster workers`: List worker node states and reconnect commands.
-* `cluster ui`: Launch the local Hub and open the browser dashboard on `http://localhost:2424`.
+* `cluster ui [--port 2424] [--proxy-port 8080] [--no-browser]`: Launch the local Hub and open the browser dashboard on `http://localhost:2424`.
 
 #### Team Member Commands
 * `cluster connect <url> --token <token>`: Authenticate as team member.
@@ -164,5 +170,5 @@ The desktop dashboard operates as a lightweight, zero-dependency browser-based c
 * Milestone 3: Interactive multi-provider model search and download engine (`cluster fetch`).
 * Milestone 4: Dual-port runtime architecture (Port 2424 Hub Engine + Port 8080 Proxy Bridge).
 * Milestone 5: Cortex.io-style Matte-Black Web Dashboard (HTML5, CSS, SVG, Live Mesh Topology Graph, Node Inspector).
-* Milestone 6: Dual-Mode Persona UI (Admin deployment dashboard + Member chat playground).
+* Milestone 6: Dual-Mode Persona UI (Token-detected Admin deployment console + Member chat playground).
 * Milestone 7: Telemetry streaming bus and fair-share team queue.
