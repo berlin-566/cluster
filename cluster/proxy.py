@@ -120,6 +120,20 @@ class OllamaProxyHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_HEAD(self) -> None:
+        if self.path in ("/", ""):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", "0")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            return
+        if self.path in ("/api/tags", "/api/tags/", "/api/version", "/api/version/", "/api/ps", "/api/ps/"):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", "0")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            return
         self._proxy_request("HEAD")
 
     def do_GET(self) -> None:

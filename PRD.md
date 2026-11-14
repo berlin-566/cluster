@@ -21,7 +21,7 @@ Key targets:
 * **Default TUI Launch**: Running `cluster ui` boots the 2424 Hub and 8080 Proxy in background daemon threads and launches the full Textual TUI directly in the terminal (with `--web` flag retained for optional browser dashboard fallback).
 * **Resilient Hot-Reconnection**: If a worker notebook disconnects due to Colab timeout, prompts are held in a queue while the Leader alerts the Admin with the exact command to re-paste in a fresh cell without restarting the cluster.
 
----
+***
 
 ### 2. Leader Notebook Orchestration Workflow
 
@@ -82,7 +82,7 @@ The entire cluster lifecycle is initialized and coordinated from a Primary Leade
   * TUI and CLI display an urgent reconnect alert with the exact copy-pastable one-liner command.
   * Once re-pasted, the worker rejoins, RPC reconnects, and queued generation resumes seamlessly without cluster restart.
 
----
+***
 
 ### 3. Dual-Port Runtime & Rich Textual TUI Dashboard Architecture
 
@@ -177,7 +177,7 @@ The primary view features a structured columnar DAG visualizing the cluster hier
 * Periodic 2-second REST polling to `http://127.0.0.1:2424/api/cluster/status` keeps node health, VRAM, and ping states up-to-date.
 * Automatic self-boot: If the Hub (port 2424) or Proxy (port 8080) is not already active, the TUI automatically spawns them in background daemon threads on startup.
 
----
+***
 
 ### 4. CLI Reference
 
@@ -195,7 +195,7 @@ The primary view features a structured columnar DAG visualizing the cluster hier
 * `cluster cluster workers`: List worker node states and reconnect commands.
 * `cluster version`: Version check and self-updater.
 
----
+***
 
 ### 5. Non-Functional Requirements
 
@@ -205,7 +205,7 @@ The primary view features a structured columnar DAG visualizing the cluster hier
 * **Aesthetic Standard**: Zero emojis, clean Unicode box-drawing characters, cyber-matte palette.
 * **Resilience**: Auto-reconnect handling with held prompt queues and immediate notification alerts.
 
----
+***
 
 ### 6. Implementation Milestones
 

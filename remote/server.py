@@ -143,8 +143,8 @@ def calculate_shards(total_layers=48):
             suffix = " (LM Head)" if i == len(workers_list) - 1 else ""
             w["layers"] = f"{start}..{end}{suffix}"
 
-def install_and_start_ollama():
-    """Install Ollama if not present, then launch background daemon."""
+def install_and_start_ollama(port=INTERNAL_OLLAMA_PORT):
+    """Install Ollama if not present, then launch background daemon on given port."""
     ensure_system_dependencies()
 
     if not shutil.which("ollama"):
@@ -156,9 +156,10 @@ def install_and_start_ollama():
             print(f"[WARN] Failed to install Ollama: {e}. Running in standalone coordinator mode.")
             return None
 
-    print("[SETUP] Starting Ollama engine on internal port 11435...")
+    bind_host = "0.0.0.0" if port == 8080 else "127.0.0.1"
+    print(f"[SETUP] Starting Ollama engine on {bind_host}:{port}...")
     env = os.environ.copy()
-    env["OLLAMA_HOST"] = f"127.0.0.1:{INTERNAL_OLLAMA_PORT}"
+    env["OLLAMA_HOST"] = f"{bind_host}:{port}"
     env["OLLAMA_KEEP_ALIVE"] = "24h"
     env["OLLAMA_ORIGINS"] = "*"
     env["OLLAMA_FLASH_ATTENTION"] = "1"
@@ -166,20 +167,20 @@ def install_and_start_ollama():
     log_file = open("/tmp/ollama.log", "w")
     proc = subprocess.Popen(["ollama", "serve"], env=env, stdout=log_file, stderr=subprocess.STDOUT)
 
-    max_wait = 20
+    max_wait = 25
     for _ in range(max_wait):
         try:
-            conn = http.client.HTTPConnection("127.0.0.1", INTERNAL_OLLAMA_PORT, timeout=2)
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
             conn.request("GET", "/api/tags")
             resp = conn.getresponse()
             if resp.status == 200:
-                print("[OK] Ollama engine is responsive and ready.")
+                print(f"[OK] Ollama engine is responsive and ready on port {port}.")
                 conn.close()
                 return proc
         except Exception:
             time.sleep(1)
 
-    print("[WARN] Ollama took longer than expected to respond, continuing...")
+    print(f"[WARN] Ollama took longer than expected to respond on port {port}, continuing...")
     return proc
 
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
@@ -238,6 +239,13 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def do_HEAD(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", "0")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+
     def do_OPTIONS(self):
         self.send_response(200)
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -251,6 +259,17 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
         path = parsed.path
         role = self._get_auth_role()
 
+        # Root probe (Ollama reachability ping)
+        if path in ("/", ""):
+            body = b"Ollama is running (via cluster cloud bridge)\n"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         # Health endpoint (open or token-checked)
         if path in ("/_cluster/health", "/_host_it/health"):
             role_assigned = role or "member"
@@ -263,8 +282,56 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
             })
             return
 
-        if not role:
-            self._send_unauthorized()
+        # Ollama Version endpoint (open for native CLI)
+        if path in ("/api/version", "/api/version/"):
+            self._send_json(200, {"version": "0.5.4"})
+            return
+
+        # Ollama Running Processes endpoint (ollama ps - open)
+        if path in ("/api/ps", "/api/ps/"):
+            active_m = cluster_state.get("active_model", "qwen2.5:14b")
+            m_obj = make_ollama_model_dict(active_m)
+            m_obj["expires_at"] = "2099-01-01T00:00:00Z"
+            m_obj["size_vram"] = 9200000000
+            self._send_json(200, {"models": [m_obj]})
+            return
+
+        # Ollama Tags / Models endpoint (ollama list - open)
+        if path in ("/api/tags", "/api/tags/"):
+            models_list = []
+            try:
+                conn = http.client.HTTPConnection("127.0.0.1", INTERNAL_OLLAMA_PORT, timeout=2.0)
+                conn.request("GET", "/api/tags")
+                res = conn.getresponse()
+                if res.status == 200:
+                    data = json.loads(res.read().decode("utf-8"))
+                    models_list = data.get("models", [])
+                conn.close()
+            except Exception:
+                pass
+
+            active_m = cluster_state.get("active_model", "qwen2.5:14b")
+            has_active = any(m.get("name") == active_m or m.get("model") == active_m for m in models_list)
+            if not has_active:
+                models_list.insert(0, make_ollama_model_dict(active_m))
+
+            self._send_json(200, {"models": models_list})
+            return
+
+        # OpenAI compatible models list endpoint (/v1/models - open)
+        if path in ("/v1/models", "/v1/models/"):
+            active_m = cluster_state.get("active_model", "qwen2.5:14b")
+            self._send_json(200, {
+                "object": "list",
+                "data": [
+                    {
+                        "id": active_m,
+                        "object": "model",
+                        "created": int(time.time()),
+                        "owned_by": "cluster"
+                    }
+                ]
+            })
             return
 
         # Cluster Status endpoint
@@ -277,7 +344,7 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
                 self._send_json(200, {
                     "status": cluster_state["health"],
                     "service": "cluster",
-                    "role": role,
+                    "role": role or "member",
                     "model": cluster_state["active_model"],
                     "workers_count": workers_count,
                     "nodes_count": workers_count + 1,
@@ -333,42 +400,6 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
                     "temp_c": leader_gpu.get("temp_c", 48),
                     "cluster_health": cluster_state["health"],
                 })
-            return
-
-        # Ollama Version endpoint
-        if path in ("/api/version", "/api/version/"):
-            self._send_json(200, {"version": "0.5.4"})
-            return
-
-        # Ollama Running Processes endpoint (ollama ps)
-        if path in ("/api/ps", "/api/ps/"):
-            active_m = cluster_state.get("active_model", "qwen2.5:14b")
-            m_obj = make_ollama_model_dict(active_m)
-            m_obj["expires_at"] = "2099-01-01T00:00:00Z"
-            m_obj["size_vram"] = 9200000000
-            self._send_json(200, {"models": [m_obj]})
-            return
-
-        # Ollama Tags / Models endpoint (ollama list)
-        if path in ("/api/tags", "/api/tags/"):
-            models_list = []
-            try:
-                conn = http.client.HTTPConnection("127.0.0.1", INTERNAL_OLLAMA_PORT, timeout=2.0)
-                conn.request("GET", "/api/tags")
-                res = conn.getresponse()
-                if res.status == 200:
-                    data = json.loads(res.read().decode("utf-8"))
-                    models_list = data.get("models", [])
-                conn.close()
-            except Exception:
-                pass
-
-            active_m = cluster_state.get("active_model", "qwen2.5:14b")
-            has_active = any(m.get("name") == active_m or m.get("model") == active_m for m in models_list)
-            if not has_active:
-                models_list.insert(0, make_ollama_model_dict(active_m))
-
-            self._send_json(200, {"models": models_list})
             return
 
         # Proxy to Ollama
@@ -475,6 +506,11 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
                     },
                 }
             self._send_json(200, show_data)
+            return
+
+        # Allow inference APIs through to Ollama
+        if path in ("/api/generate", "/api/chat") or path.startswith("/v1/"):
+            self._proxy_to_ollama("POST")
             return
 
         if not role:
@@ -667,25 +703,28 @@ def main():
         cluster_state["member_token"] = token
         cluster_state["worker_token"] = token
 
-        install_and_start_ollama()
-        start_auth_proxy()
-        print(f"[AUTH] Protected proxy active on port {PROXY_PORT}")
+        # Host Ollama directly on port 8080: zero extra proxy or fixes needed!
+        print("[SETUP] Starting Ollama engine directly on port 8080...")
+        install_and_start_ollama(port=8080)
 
         tunnel_url, _ = install_and_start_cloudflared()
         cluster_state["tunnel_url"] = tunnel_url
 
         print("\n" + "=" * 64)
-        print("          cluster SINGLE HOST READY")
+        print("          cluster SINGLE HOST READY (PORT 8080 DIRECT)")
         print("=" * 64)
         print(f"Cloud GPU:       {gpu_name} ({vram_mb // 1024} GB VRAM)")
-        print(f"Tunnel URL:      {tunnel_url}")
-        print(f"Security Token:  {token}")
-        print("\nRun this command on your laptop:")
-        print(f"  cluster connect {tunnel_url} --token {token}\n")
-        print("Next steps on your machine:")
-        print("  cluster serve       (start local bridge & Ollama support on port 8080)")
-        print("  cluster chat        (interactive terminal chat)")
-        print("  cluster ui          (open web dashboard on http://localhost:2424)")
+        print(f"Ollama Endpoint: {tunnel_url}")
+        print("\n[OPTION 1] Native Ollama CLI on your laptop (Direct connection):")
+        print(f"  export OLLAMA_HOST={tunnel_url}")
+        print("  ollama list")
+        print("  ollama run qwen2.5:14b\n")
+        print("[OPTION 2] cluster Desktop CLI & Local Bridge:")
+        print(f"  cluster connect {tunnel_url}")
+        print("  cluster serve       (binds local port 8080 and 11434)")
+        print("  cluster chat\n")
+        print("[OPTION 3] Cursor / VS Code / Open WebUI (Direct):")
+        print(f"  OpenAI Base URL: {tunnel_url}/v1")
         print("=" * 64 + "\n")
 
     else:
