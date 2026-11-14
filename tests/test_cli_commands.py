@@ -60,5 +60,21 @@ class TestCliCommands(unittest.TestCase):
         self.assertIn("[cluster fetch] Searching multi-provider registries", result.output)
         self.assertIn("POOLED VRAM STATUS", result.output)
 
+    def test_serve_command_help(self):
+        result = self.runner.invoke(main, ["serve", "--help"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("Start local cluster API proxy on port 8080", result.output)
+        self.assertIn("--ollama-port", result.output)
+
+    def test_proxy_alias_help(self):
+        result = self.runner.invoke(main, ["proxy", "--help"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertIn("cluster serve", result.output)
+
+    def test_serve_command_unconfigured(self):
+        result = self.runner.invoke(main, ["serve"])
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn("No remote cloud host configured", result.output)
+
 if __name__ == "__main__":
     unittest.main()

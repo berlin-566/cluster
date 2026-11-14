@@ -22,6 +22,8 @@ classifiers = [
 dependencies = [
     "httpx>=0.24.0",
     "click>=8.0.0",
+    "textual>=0.40.0",
+    "rich>=12.0.0",
 ]
 
 [project.optional-dependencies]

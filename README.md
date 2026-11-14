@@ -14,10 +14,14 @@ Pool multiple ephemeral cloud notebooks (Google Colab, Kaggle, team GPU instance
 * **Pre-Compiled llama.cpp RPC Backends**: High-performance CUDA 12 RPC engine (`llama-server` and `rpc-server`) with zero Python runtime overhead during token generation.
 * **Interactive Multi-Provider Model Resolver (`cluster fetch <model>`)**: Searches across Ollama Library and Hugging Face Hub (verified GGUF publishers), displays quantization levels and automatic pooled VRAM fit evaluation before deploying.
 * **Dual-Port Runtime Architecture**:
-  * **Port 2424**: Core Hub Engine and Cortex.io-style Matte-Black Web Dashboard.
+  * **Port 2424**: Core Hub Engine, REST API, and Server-Sent Events (SSE) telemetry bus.
   * **Port 8080**: Transparent API Proxy ingress; all client tools (Cursor, VS Code, Open WebUI) connect to 8080, which routes through the 2424 Hub for live traffic telemetry and mesh visualization.
-* **Zero-Dependency Embedded Frontend**: 100% self-contained HTML5, modern CSS, reactive JS, and vector SVGs bundled directly into the Python package with zero Node.js/npm requirements (under 25MB RAM).
-* **Automatic UI Launch**: Running `cluster ui` boots the 2424 Hub, binds the 8080 proxy, and automatically opens your default browser.
+* **Rich Premium Terminal User Interface (TUI)**: Powered by Python **Textual**, `cluster ui` launches a full terminal cockpit featuring:
+  * **Hierarchical Card DAG Topology**: Live interactive tree visualizing the Admin manager, Leader coordinator node, 3+ Worker nodes, and connected Team Members.
+  * **Interactive Node Inspector Drawer**: Focused node telemetry with instant hotkey actions (`[c]` copy reconnect one-liner, `[r]` ping RPC latency, `[e]` evict).
+  * **5-Tab Navigation**: `[1] Mesh Topology`, `[2] Models & Deploy`, `[3] Chat Playground`, `[4] Team & Traffic`, `[5] System Logs`.
+  * **Cyber Matte Dark Aesthetic**: Clean Tokyo Night / Slate theme, rounded Unicode borders, and strictly zero emojis.
+* **Automatic TUI Launch**: Running `cluster ui` boots the 2424 Hub and 8080 proxy in background threads and launches the full Textual TUI directly in your terminal (use `--web` to launch the browser dashboard).
 * **Dual-Mode Persona Experience**:
   * **Admin Mode**: Full cluster management, model deployment, layer sharding orchestration, worker eviction, and diagnostic logs.
   * **User / Member Mode**: Built-in interactive streaming chat playground, local proxy status (`http://127.0.0.1:8080`), and live generation speed scoreboard.
@@ -92,7 +96,7 @@ Copy the connection command shown in the notebook output and run it on your loca
 
 ```bash
 cluster connect <tunnel-url> --token <token>
-cluster proxy
+cluster serve
 cluster chat
 ```
 
@@ -115,7 +119,7 @@ The Leader notebook will initialize and display the complete control board:
    cluster admin connect <leader-tunnel-url> --token <admin-token>
    cluster ui
    ```
-   The browser automatically opens `http://localhost:2424` with the live topology graph and node inspector.
+   Launches the rich Textual TUI dashboard directly in your terminal (with `--web` flag to open the browser dashboard at `http://localhost:2424`).
 3. **Team Member Command**: Share with team members for inference access:
    ```bash
    cluster connect <leader-tunnel-url> --token <member-token>
@@ -141,8 +145,8 @@ cluster cluster status
 # List worker node states and reconnect commands
 cluster cluster workers
 
-# Launch local Hub and open the browser dashboard on http://localhost:2424
-cluster ui [--port 2424] [--proxy-port 8080] [--no-browser]
+# Launch local Hub and open the Textual TUI dashboard (or browser with --web)
+cluster ui [--port 2424] [--proxy-port 8080] [--web]
 ```
 
 ### Team Member Commands
@@ -154,8 +158,9 @@ cluster connect <url> --token <token>
 # Interactive terminal chat streaming at multi-GPU speed
 cluster chat [model]
 
-# Local transparent reverse proxy for Cursor, VS Code, and Open WebUI
-cluster proxy [--port 8080]
+# Local transparent API server and Ollama bridge (Cursor, VS Code, Open WebUI, Ollama CLI)
+cluster serve [--port 8080]
+# Alias: cluster proxy
 
 # Check cluster connectivity and current loaded model
 cluster status
@@ -164,9 +169,22 @@ cluster status
 cluster version
 ```
 
-## Transparent Proxy IDE Setup (Port 8080)
+## Transparent Proxy & Ollama Setup (Port 8080 / 11434)
 
 All external tools connect to `http://127.0.0.1:8080`:
+
+* **Native Ollama CLI (`ollama list`, `ollama ps`, `ollama run`)**:
+  Running `cluster serve` automatically dual-binds port 11434 (if available) alongside port 8080. You can run standard Ollama CLI commands directly:
+  ```bash
+  ollama list
+  ollama ps
+  ollama run qwen2.5:14b
+  ```
+  If port 11434 is already in use by a local process, point your Ollama CLI to the cluster bridge:
+  ```bash
+  export OLLAMA_HOST=127.0.0.1:8080
+  ollama list
+  ```
 
 * **Cursor IDE**:
   * Settings -> Models -> Add model:

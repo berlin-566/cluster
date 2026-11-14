@@ -19,7 +19,7 @@ from cluster.client import ClusterClient
 from cluster.proxy import run_proxy, start_proxy_background
 from cluster.hub import run_hub, start_hub_background
 from cluster.fetch import search_models, format_search_table
-from cluster.tui import interactive_chat, display_gpu
+from cluster.tui import interactive_chat, display_gpu, run_tui
 from cluster.version import print_version_details
 
 def version_callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
@@ -136,7 +136,7 @@ def connect(url: str, token: Optional[str]) -> None:
         click.secho("[INFO] No models loaded yet on cluster.", fg="yellow")
 
     click.echo("\nNext steps:")
-    click.echo("  1. Start local proxy:  cluster proxy")
+    click.echo("  1. Start local bridge: cluster serve")
     click.echo("  2. Chat in terminal:   cluster chat")
     click.echo("  3. Open Dashboard:     cluster ui")
 
@@ -280,56 +280,58 @@ def cluster_workers() -> None:
     click.secho(f"!curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/remote/worker.sh | bash -s -- --leader {remote_url} --token {token}\n", fg="yellow")
 
 # =============================================================
-# Web UI Dashboard (cluster ui)
+# Desktop UI Dashboard (cluster ui [--web])
 # =============================================================
 @main.command()
-@click.option("--port", default=DEFAULT_HUB_PORT, help="Port for the Web Dashboard Hub (default: 2424).")
+@click.option("--port", default=DEFAULT_HUB_PORT, help="Port for the Hub / API Engine (default: 2424).")
 @click.option("--proxy-port", default=DEFAULT_PROXY_PORT, help="Port for the Transparent API Proxy (default: 8080).")
-@click.option("--no-browser", is_flag=True, help="Do not open the default web browser automatically.")
-def ui(port: int, proxy_port: int, no_browser: bool) -> None:
-    """Launch the Cortex.io-style Matte-Black Desktop Web Dashboard."""
-    click.secho("\n=======================================================", fg="cyan")
-    click.secho("  cluster: Multi-Notebook Distributed GPU Mesh", fg="cyan", bold=True)
-    click.secho("=======================================================", fg="cyan")
-
+@click.option("--web", is_flag=True, help="Launch the legacy browser-based web dashboard instead of the TUI.")
+@click.option("--no-browser", is_flag=True, help="Do not open the default web browser automatically (used with --web).")
+def ui(port: int, proxy_port: int, web: bool, no_browser: bool) -> None:
+    """Launch the cluster TUI Desktop Dashboard (or browser with --web)."""
     # Launch Port 8080 Transparent Proxy in background
     try:
         start_proxy_background(port=proxy_port)
-        click.echo(f"[PROXY] Transparent API Ingress: http://127.0.0.1:{proxy_port}")
-    except Exception as e:
-        click.secho(f"[WARN] Could not bind proxy port {proxy_port}: {e}", fg="yellow")
+    except Exception:
+        pass
 
     # Launch Port 2424 Hub in background
     try:
         start_hub_background(port=port)
+    except Exception:
+        pass
+
+    if web:
+        click.secho("\n=======================================================", fg="cyan")
+        click.secho("  cluster: Multi-Notebook Distributed GPU Mesh", fg="cyan", bold=True)
+        click.secho("=======================================================", fg="cyan")
         dashboard_url = f"http://127.0.0.1:{port}"
         click.secho(f"[HUB]   Matte-Black Web Dashboard: {dashboard_url}", fg="green", bold=True)
-    except Exception as e:
-        click.secho(f"[ERROR] Could not start Hub on port {port}: {e}", fg="red")
-        sys.exit(1)
+        if not no_browser:
+            click.echo("[UI]    Opening dashboard in your default browser...")
+            try:
+                webbrowser.open(dashboard_url)
+            except Exception:
+                pass
 
-    if not no_browser:
-        click.echo("[UI]    Opening dashboard in your default browser...")
+        click.echo("\n[READY] cluster web runtime active. Press Ctrl+C to stop.\n")
         try:
-            webbrowser.open(dashboard_url)
-        except Exception:
-            pass
-
-    click.echo("\n[READY] cluster runtime active. Press Ctrl+C to stop.\n")
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        click.echo("\n[STOP] Shutting down cluster UI and Proxy...")
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            click.echo("\n[STOP] Shutting down cluster UI and Proxy...")
+    else:
+        run_tui(hub_port=port, proxy_port=proxy_port)
 
 # =============================================================
-# Transparent Proxy (cluster proxy [--port 8080])
+# Inference Bridge & API Server (cluster serve [--port 8080])
 # =============================================================
-@main.command()
-@click.option("--port", "-p", default=DEFAULT_PROXY_PORT, help=f"Local port to bind (default: {DEFAULT_PROXY_PORT}).")
+@main.command("serve")
+@click.option("--port", "-p", default=DEFAULT_PROXY_PORT, help=f"Local proxy port to bind (default: {DEFAULT_PROXY_PORT}).")
 @click.option("--host", "-h", default="127.0.0.1", help="Local host to bind (default: 127.0.0.1).")
-def proxy(port: int, host: str) -> None:
-    """Start the transparent local proxy on 127.0.0.1:8080."""
+@click.option("--ollama-port", default=11434, help="Local Ollama CLI integration port to dual-bind (default: 11434).")
+def serve(port: int, host: str, ollama_port: int) -> None:
+    """Start local cluster API proxy on port 8080 with Ollama CLI integration."""
     cfg = load_config()
     remote_url = cfg.get("remote_url")
     if not remote_url:
@@ -337,12 +339,26 @@ def proxy(port: int, host: str) -> None:
         click.echo("Connect first using: cluster connect <url> --token <token>")
         sys.exit(1)
 
-    click.echo(f"[PROXY] Starting transparent ingress on http://{host}:{port} -> {remote_url}")
+    click.secho("\n=======================================================", fg="cyan")
+    click.secho("  cluster: Local Inference Bridge & API Server", fg="cyan", bold=True)
+    click.secho("=======================================================", fg="cyan")
+    click.echo(f"Leader Target:  {remote_url}")
+    click.echo(f"HTTP Ingress:   http://{host}:{port} (OpenAI / Cursor / VS Code / WebUI)")
+
     try:
-        run_proxy(port=port, host=host)
+        run_proxy(port=port, host=host, ollama_port=ollama_port)
     except RuntimeError as e:
         click.secho(f"[ERROR] {e}", fg="red")
         sys.exit(1)
+
+@main.command("proxy")
+@click.option("--port", "-p", default=DEFAULT_PROXY_PORT, help=f"Local port to bind (default: {DEFAULT_PROXY_PORT}).")
+@click.option("--host", "-h", default="127.0.0.1", help="Local host to bind (default: 127.0.0.1).")
+@click.option("--ollama-port", default=11434, help="Local Ollama integration port to dual-bind (default: 11434).")
+@click.pass_context
+def proxy(ctx: click.Context, port: int, host: str, ollama_port: int) -> None:
+    """(Alias for 'cluster serve') Start the transparent local proxy."""
+    ctx.forward(serve)
 
 # =============================================================
 # Chat & GPU

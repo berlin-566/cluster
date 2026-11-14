@@ -183,5 +183,6 @@ echo "  cluster admin connect <tunnel-url> --token <admin-token>"
 echo "  cluster connect <tunnel-url> --token <token>"
 echo "  cluster ui                 (Launch Matte-Black Web Dashboard)"
 echo "  cluster fetch <model>      (Search & Deploy Models)"
-echo "  cluster proxy              (Start Transparent Proxy on 127.0.0.1:8080)"
+echo "  cluster serve              (Start Local API Server & Ollama Bridge on 127.0.0.1:8080)
+  cluster proxy              (Alias for cluster serve)"
 echo "  cluster chat               (Terminal Streaming Chat)"

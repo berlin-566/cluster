@@ -16,13 +16,14 @@ class TestHub(unittest.TestCase):
         cls.orig_env = os.environ.get("CLUSTER_CONFIG_DIR")
         os.environ["CLUSTER_CONFIG_DIR"] = cls.tmpdir.name
 
-        cls.port = 19876
-        cls.server = start_hub_background(port=cls.port, host="127.0.0.1")
+        cls.server = start_hub_background(port=0, host="127.0.0.1")
+        cls.port = cls.server.server_address[1]
         time.sleep(0.3)
 
     @classmethod
     def tearDownClass(cls):
         cls.server.shutdown()
+        cls.server.server_close()
         if cls.orig_env is not None:
             os.environ["CLUSTER_CONFIG_DIR"] = cls.orig_env
         else:

@@ -157,5 +157,66 @@ class TestProxy(unittest.TestCase):
                 else:
                     os.environ.pop("CLUSTER_CONFIG_DIR", None)
 
+    def test_ollama_endpoints(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            orig = os.environ.get("CLUSTER_CONFIG_DIR")
+            os.environ["CLUSTER_CONFIG_DIR"] = tmpdir
+
+            # Configure remote so endpoints requiring connection succeed
+            update_config(remote_url="http://127.0.0.1:54321", auth_token="tok", last_model="qwen2.5:14b")
+
+            proxy_server = ThreadedHTTPServer(("127.0.0.1", 0), OllamaProxyHandler)
+            proxy_port = proxy_server.server_port
+            proxy_t = threading.Thread(target=proxy_server.serve_forever, daemon=True)
+            proxy_t.start()
+
+            try:
+                conn = http.client.HTTPConnection("127.0.0.1", proxy_port)
+
+                # Test /api/version
+                conn.request("GET", "/api/version")
+                resp = conn.getresponse()
+                self.assertEqual(resp.status, 200)
+                ver_data = json.loads(resp.read().decode("utf-8"))
+                self.assertIn("version", ver_data)
+
+                # Test /api/ps
+                conn.request("GET", "/api/ps")
+                resp = conn.getresponse()
+                self.assertEqual(resp.status, 200)
+                ps_data = json.loads(resp.read().decode("utf-8"))
+                self.assertIn("models", ps_data)
+                self.assertGreaterEqual(len(ps_data["models"]), 1)
+                self.assertIn("size_vram", ps_data["models"][0])
+
+                # Test /api/tags (returns synthesized/proxied model)
+                conn.request("GET", "/api/tags")
+                resp = conn.getresponse()
+                self.assertEqual(resp.status, 200)
+                tags_data = json.loads(resp.read().decode("utf-8"))
+                self.assertIn("models", tags_data)
+                self.assertGreaterEqual(len(tags_data["models"]), 1)
+                m = tags_data["models"][0]
+                self.assertEqual(m["name"], "qwen2.5:14b")
+                self.assertIn("details", m)
+
+                # Test /api/show
+                show_req = json.dumps({"name": "qwen2.5:14b"}).encode("utf-8")
+                conn.request("POST", "/api/show", body=show_req, headers={"Content-Type": "application/json"})
+                resp = conn.getresponse()
+                self.assertEqual(resp.status, 200)
+                show_data = json.loads(resp.read().decode("utf-8"))
+                self.assertIn("modelfile", show_data)
+                self.assertIn("details", show_data)
+
+                conn.close()
+            finally:
+                proxy_server.shutdown()
+                proxy_server.server_close()
+                if orig:
+                    os.environ["CLUSTER_CONFIG_DIR"] = orig
+                else:
+                    os.environ.pop("CLUSTER_CONFIG_DIR", None)
+
 if __name__ == "__main__":
     unittest.main()
