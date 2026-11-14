@@ -53,14 +53,17 @@ class OllamaProxyHandler(BaseHTTPRequestHandler):
         return remote_url, host, port, is_https, auth_token
 
     def _send_error_json(self, status_code: int, message: str) -> None:
-        payload = json.dumps({"error": message}).encode("utf-8")
-        self.send_response(status_code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(payload)))
-        self.send_header("Connection", "close")
-        self.end_headers()
-        self.wfile.write(payload)
-        self.wfile.flush()
+        try:
+            payload = json.dumps({"error": message}).encode("utf-8")
+            self.send_response(status_code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(payload)
+            self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def do_OPTIONS(self) -> None:
         self.send_response(200)
@@ -133,9 +136,9 @@ class OllamaProxyHandler(BaseHTTPRequestHandler):
             if is_https:
                 import ssl
                 ctx = ssl.create_default_context()
-                conn = http.client.HTTPSConnection(host, port, context=ctx, timeout=180.0)
+                conn = http.client.HTTPSConnection(host, port, context=ctx, timeout=600.0)
             else:
-                conn = http.client.HTTPConnection(host, port, timeout=180.0)
+                conn = http.client.HTTPConnection(host, port, timeout=600.0)
 
             # Prepare outbound headers
             out_headers = {}
@@ -168,32 +171,39 @@ class OllamaProxyHandler(BaseHTTPRequestHandler):
                 self.send_header("Transfer-Encoding", "chunked")
                 self.end_headers()
                 
-                # Stream chunked
-                while True:
-                    chunk = upstream_resp.read(4096)
-                    if not chunk:
-                        break
-                    # Send HTTP chunk
-                    hex_len = f"{len(chunk):X}\r\n".encode("latin-1")
-                    self.wfile.write(hex_len + chunk + b"\r\n")
+                # Stream chunked safely
+                try:
+                    while True:
+                        chunk = upstream_resp.read(4096)
+                        if not chunk:
+                            break
+                        hex_len = f"{len(chunk):X}\r\n".encode("latin-1")
+                        self.wfile.write(hex_len + chunk + b"\r\n")
+                        self.wfile.flush()
+                    self.wfile.write(b"0\r\n\r\n")
                     self.wfile.flush()
-                # Final zero chunk
-                self.wfile.write(b"0\r\n\r\n")
-                self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    return
             else:
                 # Regular stream / content-length response
                 self.end_headers()
-                while True:
-                    chunk = upstream_resp.read(8192)
-                    if not chunk:
-                        break
-                    self.wfile.write(chunk)
-                    self.wfile.flush()
+                try:
+                    while True:
+                        chunk = upstream_resp.read(8192)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    return
 
         except (socket.timeout, TimeoutError):
             self._send_error_json(504, "Request to remote cloud GPU timed out.")
         except ConnectionRefusedError:
             self._send_error_json(502, f"Could not connect to remote host {host}:{port}.")
+        except (BrokenPipeError, ConnectionResetError):
+            # Client disconnected early (e.g. client cancelled or hit its own timeout)
+            pass
         except Exception as e:
             self._send_error_json(502, f"Cloud bridge proxy error: {str(e)}")
         finally:

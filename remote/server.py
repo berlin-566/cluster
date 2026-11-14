@@ -118,6 +118,7 @@ def install_and_start_ollama():
     env["OLLAMA_HOST"] = f"127.0.0.1:{INTERNAL_OLLAMA_PORT}"
     env["OLLAMA_KEEP_ALIVE"] = "24h"
     env["OLLAMA_ORIGINS"] = "*"
+    env["OLLAMA_FLASH_ATTENTION"] = "1"
 
     log_file = open("/tmp/ollama.log", "w")
     proc = subprocess.Popen(["ollama", "serve"], env=env, stdout=log_file, stderr=subprocess.STDOUT)
