@@ -4,12 +4,12 @@
 
 ### 1. Vision and Objective
 
-The objective of cluster Distributed Mesh is to pool multiple ephemeral cloud notebook runtimes (Google Colab, Kaggle, and team member GPU instances) into an orchestrated, high-throughput, and fault-tolerant inference cluster.
+The objective of cluster Distributed Mesh is to pool multiple ephemeral cloud notebook runtimes (Google Colab, Kaggle, and team member GPU instances) into an orchestrated, unified multi-GPU inference cluster.
 
 Key targets:
-* Linear Throughput Scaling: Aggregate 3-4 worker notebooks generating 150 tokens/sec each to deliver 450+ tokens/sec across concurrent streams.
-* Team-Wide Shared Inference: Enable 15-16 team members to seamlessly access the cluster through standardized CLI commands (`cluster chat`, `cluster proxy`) and standard API endpoints.
-* Large Model Distributed Execution: Support models exceeding single-GPU memory capacity (such as DeepSeek v4/R1, GLM, and 70B+ parameter models) across multiple nodes using distributed pipeline sharding.
+* Unified Multi-GPU Model Deployment: A single model (e.g. Qwen 2.5 14B/32B/72B, DeepSeek, or GLM) is downloaded once and cooperatively deployed across all 4+ GPUs simultaneously.
+* VRAM Pooling: Combines the VRAM of all participating notebooks (e.g. 4x 16GB T4 = 64GB pooled VRAM, or 4x 2xT4 = 128GB pooled VRAM) to run massive models that cannot fit on any single notebook.
+* Collaborative Token Generation: All GPUs compute their assigned layers in parallel/pipeline, streaming high-speed tokens to the client.
 * Single-Command Notebook Orchestration: A Leader Notebook generates dedicated one-liner commands for all worker notebooks, admin control, and team members.
 
 ### 2. Leader Notebook Orchestration Workflow
@@ -30,36 +30,45 @@ The entire cluster lifecycle is initialized and coordinated from a Primary Leade
      Command shared with team members for inference access:
      `cluster connect <leader-tunnel-url> --token <member-token>`
 
-#### 2.2 Role-Based Access Control (RBAC)
+#### 2.2 Cooperative Multi-GPU Deployment
+* The Leader coordinates model fetching: The model is fetched once on the Leader and partitioned across worker GPU memory over secure RPC / tensor channels.
+* Layer Sharding: For a 48-layer transformer model running on 4 notebooks:
+  * Notebook 1 (Leader): Embedding layer + Layers 1 to 12
+  * Notebook 2 (Worker 1): Layers 13 to 24
+  * Notebook 3 (Worker 2): Layers 25 to 36
+  * Notebook 4 (Worker 3): Layers 37 to 48 + LM Head / Token Generation
+* Pooled Memory: 4x Tesla T4 instances provide 64GB of pooled VRAM, allowing 32B, 70B, and GLM models to be loaded with full context.
+
+#### 2.3 Role-Based Access Control (RBAC)
 * Leader / Admin Role:
   * Full cluster management.
-  * Can trigger model pulls across all worker nodes (`cluster models pull <model>`).
-  * Can configure execution mode (Replicated vs Pipeline Sharded).
-  * Can view live GPU, VRAM, and latency metrics across every node.
+  * Triggers cooperative model loading across the multi-GPU mesh (`cluster models pull <model>`).
+  * Views live GPU, VRAM, temperature, and latency metrics across every node.
 * Team Member Role:
   * Inference access only (`cluster chat`, `cluster proxy`).
-  * Cannot delete or trigger unauthorized large model downloads that could saturate network bandwidth.
-  * Token-bucket rate limiting and fair-share queueing.
+  * Connects IDEs, Cursor, Continue, or Open WebUI directly to the unified cluster endpoint.
+  * Fair-share queuing and request multiplexing.
 * Worker Node Role:
-  * Executes computation jobs assigned by the Leader.
-  * Periodically sends GPU telemetry and health heartbeats.
+  * Operates as a remote RPC GPU accelerator node.
+  * Receives layer weights and processes forward-pass tensor activations.
 
 ### 3. Architecture and Core Topology
 
 The system comprises three primary layers:
 
-#### A. Leader Node (Central Coordinator)
+#### A. Leader Node (Coordinator & Primary GPU)
 * Ingress Gateway: Exposes public Cloudflare Tunnel serving both Admin management APIs and Member inference APIs.
 * Worker Registry: Tracks connected worker notebooks (`notebook-1`, `notebook-2`, etc.), active GPU hardware, VRAM headroom, and round-trip ping latency.
-* Scheduler and Dispatcher:
-  * Replicated Mode: Load balances incoming inference requests across available workers using least-connections and latency weighting, multiplying aggregate generation throughput.
-  * Sharded Pipeline Mode: Partitions large model layers across the mesh (Leader + Workers) for models that do not fit into a single GPU.
-* Prompt Resiliency and Failover: If a worker notebook disconnects or times out mid-generation, the Leader automatically re-routes the prompt to an active replica.
+* Multi-GPU Inference Engine:
+  * Orchestrates distributed layer placement across all connected RPC GPU nodes.
+  * Manages activation streaming and token decoding loop.
+* Fault Tolerance: Actively monitors worker health. If a worker goes offline, alerts the Admin to reconnect the node.
 
-#### B. Worker Nodes (Compute Units)
+#### B. Worker Nodes (Remote GPU Compute Shards)
 * Run on individual Colab or Kaggle instances.
 * Paste one-liner from the Leader board to join (`curl ... | bash -s -- --join <leader-url> --token <worker-token> --name notebook-X`).
-* Worker auto-reports its GPU hardware (e.g. Tesla T4 16GB, 2x T4 32GB) and establishes a low-latency reverse communication channel with the Leader.
+* Starts an optimized GPU RPC compute backend and connects back to the Leader.
+* Executes GPU matrix multiplications and attention operations for its assigned transformer layers.
 
 #### C. Local Client & Developer Integration
 * Team members run `cluster connect <leader-url> --token <member-token>` on their laptops.
@@ -72,27 +81,24 @@ The system comprises three primary layers:
 * Worker commands generated by the Leader are pre-authenticated with unique node pairing tokens.
 * When a worker notebook executes its command, the Leader displays real-time connection status on its dashboard.
 
-#### 4.2 Distributed Model Pulling
-* Admin triggers model pull: `cluster models pull qwen2.5:14b`.
-* In Replicated Mode, the Leader broadcasts the download command to all worker nodes simultaneously so all nodes mirror the model weights.
-* In Sharded Mode, the Leader partitions model weight slices to each worker node according to available VRAM.
+#### 4.2 Single-Fetch Multi-GPU Partitioning
+* When the Admin triggers `cluster models pull <model>` or loads a model, the model is pulled once and dispatched to the workers' VRAM slices.
+* Workers do not need to independently download duplicate copies from public registries.
 
-#### 4.3 Fair-Share Concurrency and Queuing
-* When multiple team members make simultaneous requests, the Leader queues and distributes prompts across workers.
-* Streaming responses are piped directly back to the requesting member with zero buffering.
+#### 4.3 Streaming Token Delivery
+* Generated tokens are streamed via unbuffered Server-Sent Events (SSE) directly to the end user with low first-byte latency.
 
 ### 5. Non-Functional Requirements
 
-* Scalability: Seamlessly scales from 2 notebooks up to 16+ notebook instances.
-* Latency Overhead: Leader dispatch overhead under 10 milliseconds.
-* Zero Firewall Config: Pure outbound HTTPS/Cloudflare tunnel connectivity on all nodes.
-* Graceful Degradation: If 1 out of 4 notebooks disconnects, the cluster continues operating at 3/4 capacity without crashing.
+* Memory Scaling: Linear VRAM pooling across 2 to 16+ GPU nodes.
+* Zero Firewall Config: Pure outbound HTTPS / Cloudflare tunnel connectivity on all nodes.
+* Resilience: Automatic keepalive pings preventing Colab/Kaggle idle timeouts.
 * Cost: 100% free tier infrastructure compatible (Google Colab free T4, Kaggle free 2x T4).
 
 ### 6. Implementation Milestones
 
 * Milestone 1: Leader Coordinator core with interactive node count prompt and dynamic one-liner command board generator.
-* Milestone 2: Worker join agent with heartbeat telemetry and auto-registration.
-* Milestone 3: Replicated multi-node load balancer with live prompt routing and failover.
-* Milestone 4: Admin CLI commands (`cluster cluster status`, `cluster cluster pull`).
-* Milestone 5: Sharded pipeline execution for models exceeding single-node memory.
+* Milestone 2: Worker join script launching high-performance GPU RPC backend.
+* Milestone 3: Cooperative distributed model loader and layer sharding engine.
+* Milestone 4: Admin CLI commands for cluster telemetry and model management.
+* Milestone 5: Multi-user fair share request queueing for team inference.
