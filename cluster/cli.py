@@ -9,14 +9,26 @@ from cluster.config import load_config, save_config, update_config, reset_config
 from cluster.client import ClusterClient
 from cluster.proxy import run_proxy, start_proxy_background
 from cluster.tui import interactive_chat, display_gpu
+from cluster.version import print_version_details
+
+def version_callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
+    if not value or ctx.resilient_parsing:
+        return
+    print_version_details()
+    ctx.exit()
 
 @click.group()
-@click.version_option(version=__version__, prog_name="cluster")
+@click.option("--version", is_flag=True, callback=version_callback, expose_value=False, is_eager=True, help="Show installed version and update status.")
 def main() -> None:
     """cluster: Cloud-to-Local LLM Bridge.
     Host Ollama models on Colab / Kaggle and access them seamlessly on your local machine.
     """
     pass
+
+@main.command()
+def version() -> None:
+    """Show installed version, channel, and update status."""
+    print_version_details()
 
 @main.command()
 @click.argument("url")
