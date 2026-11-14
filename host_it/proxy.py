@@ -213,8 +213,8 @@ def run_proxy(port: int = 11434, host: str = "127.0.0.1") -> None:
             )
         raise e
 
-    print(f"✨ host-it local proxy running at http://{host}:{port}")
-    print(f"👉 Point Cursor, Continue, Open WebUI, or Ollama CLI to: http://{host}:{port}")
+    print(f"[PROXY] host-it local proxy running at http://{host}:{port}")
+    print(f"[INFO] Point Cursor, Continue, Open WebUI, or Ollama CLI to: http://{host}:{port}")
     print("Press Ctrl+C to stop.")
     try:
         httpd.serve_forever()

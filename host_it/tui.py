@@ -40,15 +40,13 @@ def print_banner(model: str, gpu_info: Dict[str, Any], latency: float) -> None:
             f"[bold cyan]Latency:[/bold cyan] {latency:.1f} ms\n\n"
             f"[dim]Commands: /model <name>, /models, /gpu, /status, /clear, /exit[/dim]"
         )
-        console.print(Panel(content, title="🚀 [bold magenta]host-it Terminal Chat[/bold magenta]", border_style="cyan"))
+        console.print(Panel(content, title="[bold magenta]host-it Terminal Chat[/bold magenta]", border_style="cyan"))
     else:
-        print(f"\n{COLOR_BOLD}{COLOR_MAGENTA}===================================================={COLOR_RESET}")
-        print(f"  {COLOR_BOLD}🚀 host-it Terminal Chat{COLOR_RESET}")
+        print(f"\n{COLOR_BOLD}host-it Terminal Chat{COLOR_RESET}")
         print(f"  {COLOR_CYAN}Model:{COLOR_RESET} {COLOR_BOLD}{COLOR_GREEN}{model}{COLOR_RESET}")
         print(f"  {COLOR_CYAN}Cloud GPU:{COLOR_RESET} {gpu_name} (VRAM: {vram_str})")
         print(f"  {COLOR_CYAN}Latency:{COLOR_RESET} {latency:.1f} ms")
-        print(f"  {COLOR_DIM}Commands: /model <name>, /models, /gpu, /status, /clear, /exit{COLOR_RESET}")
-        print(f"{COLOR_BOLD}{COLOR_MAGENTA}===================================================={COLOR_RESET}\n")
+        print(f"  {COLOR_DIM}Commands: /model <name>, /models, /gpu, /status, /clear, /exit{COLOR_RESET}\n")
 
 def display_gpu(gpu_info: Dict[str, Any]) -> None:
     if HAS_RICH:
@@ -61,14 +59,14 @@ def display_gpu(gpu_info: Dict[str, Any]) -> None:
         table.add_row("VRAM Used", f"{gpu_info.get('vram_used_mb', 0)} MB")
         table.add_row("VRAM Total", f"{gpu_info.get('vram_total_mb', 0)} MB")
         table.add_row("GPU Utilization", f"{gpu_info.get('gpu_util_pct', 'N/A')}%")
-        table.add_row("Temperature", f"{gpu_info.get('temp_c', 'N/A')} °C")
+        table.add_row("Temperature", f"{gpu_info.get('temp_c', 'N/A')} C")
         console.print(table)
     else:
-        print(f"\n{COLOR_BOLD}{COLOR_CYAN}--- Remote GPU Telemetry ---{COLOR_RESET}")
+        print(f"\n{COLOR_BOLD}{COLOR_CYAN}[GPU Telemetry]{COLOR_RESET}")
         print(f"  Model:       {gpu_info.get('gpu_name', 'N/A')}")
         print(f"  VRAM:        {gpu_info.get('vram_used_mb', 0)} MB / {gpu_info.get('vram_total_mb', 0)} MB")
         print(f"  Utilization: {gpu_info.get('gpu_util_pct', 'N/A')}%")
-        print(f"  Temperature: {gpu_info.get('temp_c', 'N/A')} °C\n")
+        print(f"  Temperature: {gpu_info.get('temp_c', 'N/A')} C\n")
 
 def interactive_chat(model_override: Optional[str] = None) -> None:
     cfg = load_config()
@@ -78,7 +76,7 @@ def interactive_chat(model_override: Optional[str] = None) -> None:
     health = client.health()
     if health.get("status") not in ("ok", "healthy"):
         err = health.get("error", "Remote host is unreachable.")
-        print(f"{COLOR_RED}Error: Cannot connect to cloud runner: {err}{COLOR_RESET}")
+        print(f"{COLOR_RED}[ERROR] Cannot connect to cloud runner: {err}{COLOR_RESET}")
         print("Run 'host-it connect <url>' to set up connection.")
         return
 
@@ -121,7 +119,7 @@ def interactive_chat(model_override: Optional[str] = None) -> None:
                 break
             elif cmd == "/clear":
                 messages.clear()
-                print(f"{COLOR_GREEN}✓ Conversation history cleared.{COLOR_RESET}")
+                print(f"{COLOR_GREEN}[OK] Conversation history cleared.{COLOR_RESET}")
                 continue
             elif cmd == "/gpu":
                 stats = client.gpu_stats()
@@ -138,7 +136,7 @@ def interactive_chat(model_override: Optional[str] = None) -> None:
                     m_name = m.get("name", "unknown")
                     size_gb = round(m.get("size", 0) / (1024**3), 2)
                     mark = f" {COLOR_GREEN}*(active)*{COLOR_RESET}" if m_name == current_model else ""
-                    print(f"  • {COLOR_BOLD}{m_name}{COLOR_RESET} ({size_gb} GB){mark}")
+                    print(f"  - {COLOR_BOLD}{m_name}{COLOR_RESET} ({size_gb} GB){mark}")
                 print()
                 continue
             elif cmd == "/model":
@@ -147,7 +145,7 @@ def interactive_chat(model_override: Optional[str] = None) -> None:
                 else:
                     current_model = arg
                     update_config(last_model=current_model)
-                    print(f"{COLOR_GREEN}✓ Switched to model: {current_model}{COLOR_RESET}")
+                    print(f"{COLOR_GREEN}[OK] Switched to model: {current_model}{COLOR_RESET}")
                 continue
             elif cmd == "/help":
                 print("\nAvailable commands:")

@@ -23,7 +23,7 @@ def main() -> None:
 @click.option("--token", "-t", default=None, help="Security Bearer token from Colab/Kaggle banner.")
 def connect(url: str, token: Optional[str]) -> None:
     """Connect to a remote cloud runner (Google Colab / Kaggle)."""
-    click.echo(f"🔄 Connecting to {url}...")
+    click.echo(f"[CONNECT] Contacting {url}...")
     
     # Clean URL
     url_cleaned = url.rstrip("/")
@@ -35,19 +35,19 @@ def connect(url: str, token: Optional[str]) -> None:
 
     status = health.get("status")
     if status == "unauthorized":
-        click.secho("❌ Authentication failed: Invalid or missing token.", fg="red", bold=True)
+        click.secho("[ERROR] Authentication failed: Invalid or missing token.", fg="red", bold=True)
         click.echo("Please provide the token displayed in your Colab/Kaggle runner via --token <token>.")
         sys.exit(1)
     elif status not in ("ok", "healthy"):
         err = health.get("error", "Unknown error")
-        click.secho(f"❌ Failed to reach remote runner: {err}", fg="red")
+        click.secho(f"[ERROR] Failed to reach remote runner: {err}", fg="red")
         click.echo("Ensure your Colab / Kaggle notebook is running and the Cloudflare tunnel is active.")
         sys.exit(1)
 
     # Save to config
     update_config(remote_url=url_cleaned, auth_token=token or "")
     latency = health.get("latency_ms", 0.0)
-    click.secho(f"✓ Connected successfully! Latency: {latency} ms", fg="green", bold=True)
+    click.secho(f"[OK] Connected successfully! Latency: {latency} ms", fg="green", bold=True)
 
     # Check GPU info
     gpu = client.gpu_stats()
@@ -55,18 +55,18 @@ def connect(url: str, token: Optional[str]) -> None:
     if gpu_name:
         vram_total = gpu.get("vram_total_mb", 0)
         vram_used = gpu.get("vram_used_mb", 0)
-        click.echo(f"🎮 Remote GPU: {gpu_name} (VRAM: {vram_used}MB / {vram_total}MB)")
+        click.echo(f"[GPU] Remote GPU: {gpu_name} (VRAM: {vram_used}MB / {vram_total}MB)")
 
     # Check available models
     models = client.list_models()
     if models:
-        click.echo(f"📦 Installed models ({len(models)}): {', '.join([m.get('name', '') for m in models])}")
+        click.echo(f"[MODELS] Installed models ({len(models)}): {', '.join([m.get('name', '') for m in models])}")
     else:
-        click.secho("ℹ️  No models installed yet on the cloud GPU.", fg="yellow")
+        click.secho("[INFO] No models installed yet on the cloud GPU.", fg="yellow")
         click.echo("Pull your first model using: host-it models pull <model_name>")
         click.echo("Example: host-it models pull llama3.1:8b or host-it models pull qwen2.5:14b")
 
-    click.echo("\n👉 Next steps:")
+    click.echo("\nNext steps:")
     click.echo("  1. Start local proxy:  host-it proxy")
     click.echo("  2. Chat in terminal:   host-it chat")
 
@@ -78,14 +78,14 @@ def proxy(port: int, host: str) -> None:
     cfg = load_config()
     remote_url = cfg.get("remote_url")
     if not remote_url:
-        click.secho("❌ No remote cloud host configured.", fg="red", bold=True)
+        click.secho("[ERROR] No remote cloud host configured.", fg="red", bold=True)
         click.echo("Connect first using: host-it connect <url> --token <token>")
         sys.exit(1)
 
     try:
         run_proxy(port=port, host=host)
     except RuntimeError as e:
-        click.secho(f"❌ {e}", fg="red")
+        click.secho(f"[ERROR] {e}", fg="red")
         sys.exit(1)
 
 @main.command()
@@ -108,7 +108,6 @@ def models_list() -> None:
         click.echo("No models installed on remote host.")
         return
     click.secho(f"\n{'NAME':<35} {'SIZE (GB)':<12} {'MODIFIED'}", bold=True, fg="cyan")
-    click.echo("-" * 65)
     for m in model_list:
         name = m.get("name", "unknown")
         size_gb = f"{round(m.get('size', 0) / (1024**3), 2)} GB"
@@ -121,7 +120,7 @@ def models_list() -> None:
 def models_pull(model_name: str) -> None:
     """Pull/download a model onto the remote cloud GPU."""
     client = HostItClient()
-    click.echo(f"📥 Pulling model '{model_name}' to cloud GPU...")
+    click.echo(f"[PULL] Downloading model '{model_name}' to cloud GPU...")
     
     last_status = ""
     def on_progress(data: dict) -> None:
@@ -141,9 +140,9 @@ def models_pull(model_name: str) -> None:
     ok = client.pull_model(model_name, progress_callback=on_progress)
     if ok:
         update_config(last_model=model_name)
-        click.secho(f"\n✓ Successfully pulled '{model_name}'!", fg="green", bold=True)
+        click.secho(f"\n[OK] Successfully pulled '{model_name}'!", fg="green", bold=True)
     else:
-        click.secho(f"\n❌ Failed to pull '{model_name}'.", fg="red")
+        click.secho(f"\n[ERROR] Failed to pull '{model_name}'.", fg="red")
         sys.exit(1)
 
 @models.command("rm")
@@ -154,9 +153,9 @@ def models_rm(model_name: str) -> None:
     if click.confirm(f"Are you sure you want to delete '{model_name}' from remote GPU?"):
         ok = client.delete_model(model_name)
         if ok:
-            click.secho(f"✓ Removed '{model_name}'.", fg="green")
+            click.secho(f"[OK] Removed '{model_name}'.", fg="green")
         else:
-            click.secho(f"❌ Failed to delete '{model_name}'.", fg="red")
+            click.secho(f"[ERROR] Failed to delete '{model_name}'.", fg="red")
 
 @main.command()
 def gpu() -> None:
@@ -164,7 +163,7 @@ def gpu() -> None:
     client = HostItClient()
     stats = client.gpu_stats()
     if stats.get("status") == "error":
-        click.secho(f"❌ Could not retrieve GPU stats: {stats.get('error')}", fg="red")
+        click.secho(f"[ERROR] Could not retrieve GPU stats: {stats.get('error')}", fg="red")
         sys.exit(1)
     display_gpu(stats)
 
@@ -199,7 +198,7 @@ def notebook() -> None:
 def notebook_colab() -> None:
     """Show Google Colab 1-click launch link."""
     colab_url = "https://colab.research.google.com/github/berlin-566/host-it/blob/main/notebooks/colab_host_it.ipynb"
-    click.secho("\n🚀 Google Colab Setup:", fg="cyan", bold=True)
+    click.secho("\nGoogle Colab Setup:", fg="cyan", bold=True)
     click.echo(f"1. Open the 1-click Colab Notebook:\n   {colab_url}")
     click.echo("2. Change Runtime to GPU (Runtime -> Change runtime type -> T4 GPU).")
     click.echo("3. Run the notebook cell.")
@@ -208,7 +207,7 @@ def notebook_colab() -> None:
 @notebook.command("kaggle")
 def notebook_kaggle() -> None:
     """Show Kaggle setup instructions."""
-    click.secho("\n🚀 Kaggle Setup (2x T4 GPUs = 32GB VRAM):", fg="cyan", bold=True)
+    click.secho("\nKaggle Setup (2x T4 GPUs = 32GB VRAM):", fg="cyan", bold=True)
     click.echo("1. Create a new notebook on Kaggle (https://www.kaggle.com/code).")
     click.echo("2. In the right panel, set Accelerator to 'GPU T4 x 2'.")
     click.echo("3. IMPORTANT: Turn 'Internet' toggle ON (requires verified phone number).")

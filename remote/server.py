@@ -22,6 +22,21 @@ import threading
 INTERNAL_OLLAMA_PORT = 11435
 PROXY_PORT = 8080
 
+def ensure_system_dependencies():
+    """Ensure required system tools like zstd and curl are available."""
+    if not shutil.which("zstd"):
+        print("[SETUP] Required tool 'zstd' is missing. Installing...")
+        if shutil.which("apt-get"):
+            subprocess.run(
+                "DEBIAN_FRONTEND=noninteractive apt-get update -qq && apt-get install -y -qq zstd curl wget procps",
+                shell=True,
+                check=False
+            )
+        elif shutil.which("dnf"):
+            subprocess.run("dnf install -y -q zstd curl wget procps-ng", shell=True, check=False)
+        elif shutil.which("pacman"):
+            subprocess.run("pacman -Sy --noconfirm zstd curl wget", shell=True, check=False)
+
 def get_gpu_info():
     """Detect GPU info using nvidia-smi."""
     try:
@@ -75,16 +90,18 @@ def get_recommended_models(vram_mb):
 
 def install_and_start_ollama():
     """Install Ollama if not present, then launch background daemon."""
+    ensure_system_dependencies()
+
     if not shutil.which("ollama"):
-        print("📦 Installing Ollama on cloud instance...")
+        print("[SETUP] Installing Ollama engine...")
         try:
             subprocess.run("curl -fsSL https://ollama.com/install.sh | sh", shell=True, check=True)
-            print("✓ Ollama installed successfully.")
+            print("[OK] Ollama installed successfully.")
         except subprocess.CalledProcessError as e:
-            print(f"❌ Failed to install Ollama: {e}")
+            print(f"[ERROR] Failed to install Ollama: {e}")
             sys.exit(1)
 
-    print("🚀 Starting Ollama engine on internal port 11435...")
+    print("[SETUP] Starting Ollama engine on internal port 11435...")
     env = os.environ.copy()
     env["OLLAMA_HOST"] = f"127.0.0.1:{INTERNAL_OLLAMA_PORT}"
     env["OLLAMA_KEEP_ALIVE"] = "24h"
@@ -94,20 +111,20 @@ def install_and_start_ollama():
     proc = subprocess.Popen(["ollama", "serve"], env=env, stdout=log_file, stderr=subprocess.STDOUT)
 
     # Wait for Ollama to become responsive
-    max_wait = 20
+    max_wait = 25
     for i in range(max_wait):
         try:
             conn = http.client.HTTPConnection("127.0.0.1", INTERNAL_OLLAMA_PORT, timeout=2)
             conn.request("GET", "/api/tags")
             resp = conn.getresponse()
             if resp.status == 200:
-                print("✓ Ollama engine is responsive and ready.")
+                print("[OK] Ollama engine is responsive and ready.")
                 conn.close()
                 return proc
         except Exception:
             time.sleep(1)
 
-    print("⚠️ Ollama took longer than expected to start, proceeding anyway...")
+    print("[WARN] Ollama took longer than expected to respond, continuing...")
     return proc
 
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
@@ -126,7 +143,6 @@ class AuthProxyHandler(BaseHTTPRequestHandler):
         expected = f"Bearer {self.auth_token}"
         if auth_hdr == expected:
             return True
-        # Also allow query token for easy browser checks
         parsed = urllib.parse.urlparse(self.path)
         qs = urllib.parse.parse_qs(parsed.query)
         if qs.get("token", [""])[0] == self.auth_token:
@@ -272,16 +288,16 @@ def install_and_start_cloudflared():
     """Install cloudflared and create a tunnel pointing to PROXY_PORT."""
     cf_bin = shutil.which("cloudflared") or "/tmp/cloudflared"
     if not os.path.exists(cf_bin) and not shutil.which("cloudflared"):
-        print("🌐 Downloading Cloudflare Tunnel (cloudflared)...")
+        print("[SETUP] Downloading Cloudflare Tunnel (cloudflared)...")
         url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
         try:
             subprocess.run(f"curl -sSL -o /tmp/cloudflared {url} && chmod +x /tmp/cloudflared", shell=True, check=True)
             cf_bin = "/tmp/cloudflared"
         except Exception as e:
-            print(f"❌ Failed to download cloudflared: {e}")
+            print(f"[ERROR] Failed to download cloudflared: {e}")
             sys.exit(1)
 
-    print("🔗 Initializing Cloudflare secure tunnel...")
+    print("[TUNNEL] Starting Cloudflare secure tunnel...")
     log_path = "/tmp/cloudflared.log"
     with open(log_path, "w") as log_f:
         proc = subprocess.Popen(
@@ -290,7 +306,6 @@ def install_and_start_cloudflared():
             stderr=subprocess.STDOUT
         )
 
-    # Monitor log for tunnel URL
     tunnel_url = None
     pattern = re.compile(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com")
     for _ in range(30):
@@ -304,7 +319,7 @@ def install_and_start_cloudflared():
                     break
 
     if not tunnel_url:
-        print("❌ Cloudflare tunnel URL not found after 30 seconds.")
+        print("[ERROR] Cloudflare tunnel URL not found after 30 seconds.")
         if os.path.exists(log_path):
             with open(log_path, "r") as f:
                 print(f.read())
@@ -313,9 +328,7 @@ def install_and_start_cloudflared():
     return tunnel_url, proc
 
 def main():
-    print("=" * 72)
-    print("  🚀 INITIALIZING HOST-IT CLOUD RUNNER")
-    print("=" * 72)
+    print("[INIT] Starting host-it Cloud Runner")
 
     # 1. GPU Detection
     gpu_info = get_gpu_info()
@@ -323,8 +336,8 @@ def main():
     gpu_name = gpu_info.get("gpu_name", "N/A")
     rec_models = get_recommended_models(vram_mb)
 
-    print(f"🎮 Detected GPU: {gpu_name} (Total VRAM: {vram_mb // 1024} GB)")
-    print(f"💡 Recommended models: {', '.join(rec_models)}")
+    print(f"[GPU] Detected: {gpu_name} (Total VRAM: {vram_mb // 1024} GB)")
+    print(f"[MODELS] Recommended: {', '.join(rec_models)}")
 
     # 2. Start Ollama
     install_and_start_ollama()
@@ -334,26 +347,21 @@ def main():
 
     # 4. Start Auth Proxy
     start_auth_proxy(secret_token)
-    print(f"🔒 Authenticated proxy active on port {PROXY_PORT}")
+    print(f"[AUTH] Protected proxy active on port {PROXY_PORT}")
 
     # 5. Start Tunnel
     tunnel_url, tunnel_proc = install_and_start_cloudflared()
 
-    # 6. Display High-Visibility Banner
-    print("\n" + "=" * 72)
-    print("  ✨ HOST-IT IS LIVE! Cloud GPU Ready for Local Access")
-    print("=" * 72)
-    print(f"  🎮 Cloud GPU:     {gpu_name} ({vram_mb // 1024} GB VRAM)")
-    print(f"  🌐 Tunnel URL:    {tunnel_url}")
-    print(f"  🔑 Security Token:{secret_token}")
-    print("-" * 72)
-    print("  💻 RUN THIS ON YOUR LOCAL MACHINE:")
-    print(f"     host-it connect {tunnel_url} --token {secret_token}")
-    print("-" * 72)
-    print("  Then simply run:")
-    print("     host-it proxy       # Starts local bridge on http://127.0.0.1:11434")
-    print("     host-it chat        # Interactive terminal chat")
-    print("=" * 72 + "\n")
+    # 6. Display Clean Connection Instructions
+    print("\n[READY] host-it Cloud Runner is active")
+    print(f"Cloud GPU:      {gpu_name} ({vram_mb // 1024} GB VRAM)")
+    print(f"Tunnel URL:     {tunnel_url}")
+    print(f"Security Token: {secret_token}")
+    print("\nRun this command on your local machine:")
+    print(f"host-it connect {tunnel_url} --token {secret_token}")
+    print("\nNext steps on your machine:")
+    print("host-it proxy       (start local bridge on http://127.0.0.1:11434)")
+    print("host-it chat        (interactive terminal chat)\n")
 
     # 7. Keepalive Loop
     heartbeat_count = 0
@@ -362,9 +370,9 @@ def main():
             time.sleep(60)
             heartbeat_count += 1
             if heartbeat_count % 10 == 0:
-                print(f"⏳ [Keepalive] Session active for {heartbeat_count} minutes. GPU: {gpu_name}")
+                print(f"[KEEPALIVE] Session active for {heartbeat_count} minutes. GPU: {gpu_name}")
     except KeyboardInterrupt:
-        print("\nStopping host-it cloud runner...")
+        print("\n[STOP] Stopping host-it cloud runner...")
 
 if __name__ == "__main__":
     main()
