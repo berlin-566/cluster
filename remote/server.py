@@ -144,6 +144,12 @@ class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
+    def handle_error(self, request, client_address):
+        exc_type, _, _ = sys.exc_info()
+        if exc_type in (BrokenPipeError, ConnectionResetError):
+            return
+        super().handle_error(request, client_address)
+
 class AuthProxyHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     auth_token = ""
@@ -264,30 +270,41 @@ class AuthProxyHandler(BaseHTTPRequestHandler):
             if is_chunked or resp.getheader("Transfer-Encoding") == "chunked":
                 self.send_header("Transfer-Encoding", "chunked")
                 self.end_headers()
-                while True:
-                    chunk = resp.read(4096)
-                    if not chunk:
-                        break
-                    hex_len = f"{len(chunk):X}\r\n".encode("latin-1")
-                    self.wfile.write(hex_len + chunk + b"\r\n")
+                try:
+                    while True:
+                        chunk = resp.read(4096)
+                        if not chunk:
+                            break
+                        hex_len = f"{len(chunk):X}\r\n".encode("latin-1")
+                        self.wfile.write(hex_len + chunk + b"\r\n")
+                        self.wfile.flush()
+                    self.wfile.write(b"0\r\n\r\n")
                     self.wfile.flush()
-                self.wfile.write(b"0\r\n\r\n")
-                self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    return
             else:
                 self.end_headers()
-                while True:
-                    chunk = resp.read(8192)
-                    if not chunk:
-                        break
-                    self.wfile.write(chunk)
-                    self.wfile.flush()
+                try:
+                    while True:
+                        chunk = resp.read(8192)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+        except (BrokenPipeError, ConnectionResetError):
+            pass
         except Exception as e:
-            err = json.dumps({"error": f"Ollama engine connection error: {str(e)}"}).encode("utf-8")
-            self.send_response(502)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(err)))
-            self.end_headers()
-            self.wfile.write(err)
+            try:
+                err = json.dumps({"error": f"Ollama engine connection error: {str(e)}"}).encode("utf-8")
+                self.send_response(502)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(err)))
+                self.end_headers()
+                self.wfile.write(err)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
         finally:
             conn.close()
 
