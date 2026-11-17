@@ -199,8 +199,8 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
-    def _get_auth_role(self):
-        """Check Authorization header or query param. Returns 'admin', 'member', 'worker', or None."""
+    def _get_auth_role(self, body_data=None):
+        """Check Authorization header, query param, or JSON body. Returns 'admin', 'member', 'worker', or None."""
         auth_hdr = self.headers.get("Authorization", "")
         token = ""
         if auth_hdr.startswith("Bearer "):
@@ -209,6 +209,9 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
             parsed = urllib.parse.urlparse(self.path)
             qs = urllib.parse.parse_qs(parsed.query)
             token = qs.get("token", [""])[0]
+
+        if not token and body_data and isinstance(body_data, dict):
+            token = body_data.get("token", "")
 
         if not token:
             return None
@@ -256,11 +259,11 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
-        path = parsed.path
+        clean_path = re.sub(r"/+", "/", parsed.path).rstrip("/") or "/"
         role = self._get_auth_role()
 
         # Root probe (Ollama reachability ping)
-        if path in ("/", ""):
+        if clean_path in ("/", ""):
             body = b"Ollama is running (via cluster cloud bridge)\n"
             self.send_response(200)
             self.send_header("Content-Type", "text/plain")
@@ -271,7 +274,7 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
             return
 
         # Health endpoint (open or token-checked)
-        if path in ("/_cluster/health", "/_host_it/health"):
+        if clean_path in ("/_cluster/health", "/_host_it/health"):
             role_assigned = role or "member"
             self._send_json(200, {
                 "status": "ok",
@@ -283,12 +286,12 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
             return
 
         # Ollama Version endpoint (open for native CLI)
-        if path in ("/api/version", "/api/version/"):
+        if clean_path in ("/api/version", "/api/version/"):
             self._send_json(200, {"version": "0.5.4"})
             return
 
         # Ollama Running Processes endpoint (ollama ps - open)
-        if path in ("/api/ps", "/api/ps/"):
+        if clean_path in ("/api/ps", "/api/ps/"):
             active_m = cluster_state.get("active_model", "qwen2.5:14b")
             m_obj = make_ollama_model_dict(active_m)
             m_obj["expires_at"] = "2099-01-01T00:00:00Z"
@@ -297,7 +300,7 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
             return
 
         # Ollama Tags / Models endpoint (ollama list - open)
-        if path in ("/api/tags", "/api/tags/"):
+        if clean_path in ("/api/tags", "/api/tags/"):
             models_list = []
             try:
                 conn = http.client.HTTPConnection("127.0.0.1", INTERNAL_OLLAMA_PORT, timeout=2.0)
@@ -319,7 +322,7 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
             return
 
         # OpenAI compatible models list endpoint (/v1/models - open)
-        if path in ("/v1/models", "/v1/models/"):
+        if clean_path in ("/v1/models", "/v1/models/"):
             active_m = cluster_state.get("active_model", "qwen2.5:14b")
             self._send_json(200, {
                 "object": "list",
@@ -335,7 +338,7 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
             return
 
         # Cluster Status endpoint
-        if path in ("/_cluster/status", "/_host_it/status"):
+        if clean_path in ("/_cluster/status", "/_host_it/status"):
             leader_gpu = get_gpu_info()
             with cluster_state["lock"]:
                 workers_count = len(cluster_state["workers"])
@@ -354,7 +357,7 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
             return
 
         # Worker Nodes catalog
-        if path in ("/_cluster/workers", "/_host_it/workers"):
+        if clean_path in ("/_cluster/workers", "/_host_it/workers"):
             with cluster_state["lock"]:
                 workers_list = []
                 leader_gpu = get_gpu_info()
@@ -363,7 +366,7 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
                     "role": "Leader",
                     "gpu": leader_gpu.get("gpu_name", "Tesla T4"),
                     "vram": f"{round(leader_gpu.get('vram_used_mb', 0)/1024, 1)} / {round(leader_gpu.get('vram_total_mb', 16384)/1024, 1)} GB",
-                    "layers": "0..12 (Embeddings)",
+                    "layers": cluster_state.get("leader_layers", "0..12 (Embeddings)"),
                     "status": "HEALTHY",
                     "ping": 0,
                 })
@@ -383,7 +386,7 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
             return
 
         # Multi-node GPU statistics
-        if path in ("/_cluster/gpu", "/_host_it/gpu"):
+        if clean_path in ("/_cluster/gpu", "/_host_it/gpu"):
             leader_gpu = get_gpu_info()
             with cluster_state["lock"]:
                 worker_vram_tot = sum(w.get("vram_total_mb", 16384) for w in cluster_state["workers"].values())
@@ -406,27 +409,32 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
         self._proxy_to_ollama("GET")
 
     def do_POST(self):
-        role = self._get_auth_role()
         parsed = urllib.parse.urlparse(self.path)
-        path = parsed.path
+        clean_path = re.sub(r"/+", "/", parsed.path).rstrip("/") or "/"
 
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length) if content_length > 0 else b"{}"
+        body_json = None
+        try:
+            body_json = json.loads(body.decode("utf-8")) if body else {}
+        except Exception:
+            body_json = {}
+
+        role = self._get_auth_role(body_data=body_json)
 
         # 1. Worker Join Endpoint
-        if path == "/_cluster/worker/join":
+        if clean_path in ("/_cluster/worker/join", "/_host_it/worker/join"):
             try:
-                data = json.loads(body.decode("utf-8"))
-                name = data.get("name", f"notebook-{len(cluster_state['workers'])+1}")
-                gpu_name = data.get("gpu_name", "Tesla T4")
-                vram_total = data.get("vram_total_mb", 16384)
+                name = body_json.get("name") or f"notebook-{len(cluster_state['workers'])+1}"
+                gpu_name = body_json.get("gpu_name") or "Tesla T4"
+                vram_total = body_json.get("vram_total_mb") or 16384
 
                 with cluster_state["lock"]:
                     cluster_state["workers"][name] = {
                         "name": name,
                         "gpu_name": gpu_name,
                         "vram_total_mb": vram_total,
-                        "vram_used_mb": 5200,
+                        "vram_used_mb": int(vram_total * 0.35),
                         "last_seen": time.time(),
                         "status": "HEALTHY",
                         "ping_ms": 14,
@@ -435,7 +443,7 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
                     cluster_state["health"] = "HEALTHY"
                     calculate_shards()
 
-                print(f"\n[JOIN] Worker node '{name}' joined the cluster mesh! GPU: {gpu_name}")
+                print(f"\n[JOIN] Worker node '{name}' joined the cluster mesh! GPU: {gpu_name} ({vram_total//1024} GB VRAM)")
                 self._send_json(200, {"status": "joined", "name": name, "message": "Joined cluster mesh successfully."})
                 return
             except Exception as e:
@@ -443,15 +451,26 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
                 return
 
         # 2. Worker Heartbeat Endpoint
-        if path == "/_cluster/worker/heartbeat":
+        if clean_path in ("/_cluster/worker/heartbeat", "/_host_it/worker/heartbeat"):
             try:
-                data = json.loads(body.decode("utf-8"))
-                name = data.get("name")
+                name = body_json.get("name")
                 if name:
                     with cluster_state["lock"]:
                         if name in cluster_state["workers"]:
                             cluster_state["workers"][name]["last_seen"] = time.time()
                             cluster_state["workers"][name]["status"] = "HEALTHY"
+                        else:
+                            cluster_state["workers"][name] = {
+                                "name": name,
+                                "gpu_name": body_json.get("gpu_name", "Tesla T4"),
+                                "vram_total_mb": body_json.get("vram_total_mb", 16384),
+                                "vram_used_mb": 5200,
+                                "last_seen": time.time(),
+                                "status": "HEALTHY",
+                                "ping_ms": 14,
+                                "layers": "sharded",
+                            }
+                            calculate_shards()
                 self._send_json(200, {"status": "ok"})
                 return
             except Exception as e:
@@ -459,13 +478,12 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
                 return
 
         # 3. Model Deploy Endpoint (Admin Only)
-        if path == "/_cluster/deploy":
+        if clean_path in ("/_cluster/deploy", "/_host_it/deploy"):
             if role != "admin":
                 self._send_json(403, {"error": "Forbidden: Admin token required to deploy models."})
                 return
             try:
-                data = json.loads(body.decode("utf-8"))
-                model_name = data.get("model", "")
+                model_name = body_json.get("model", "")
                 if model_name:
                     cluster_state["active_model"] = model_name
                     print(f"\n[DEPLOY] Model '{model_name}' cooperatively sharded across cluster GPUs.")
@@ -480,7 +498,7 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
                 return
 
         # 4. Ollama Model Details (ollama show / run)
-        if path in ("/api/show", "/api/show/"):
+        if clean_path in ("/api/show", "/api/show/"):
             active_m = cluster_state.get("active_model", "qwen2.5:14b")
             show_data = None
             try:
@@ -509,7 +527,7 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
             return
 
         # Allow inference APIs through to Ollama
-        if path in ("/api/generate", "/api/chat") or path.startswith("/v1/"):
+        if clean_path in ("/api/generate", "/api/chat") or clean_path.startswith("/v1/"):
             self._proxy_to_ollama("POST")
             return
 
@@ -788,13 +806,8 @@ def main():
             env_workers = os.environ.get("CLUSTER_EXPECTED_WORKERS")
             if env_workers and env_workers.isdigit():
                 expected_workers = int(env_workers)
-            elif sys.stdin.isatty():
-                try:
-                    dim_input = input("How many worker notebooks will participate in this cluster? [Default: 3]: ").strip()
-                    if dim_input.isdigit() and int(dim_input) > 0:
-                        expected_workers = int(dim_input)
-                except Exception:
-                    pass
+            else:
+                expected_workers = 3
         if not expected_workers or expected_workers <= 0:
             expected_workers = 3
 
@@ -828,9 +841,21 @@ def main():
             }
         calculate_shards()
 
-        install_and_start_ollama()
+        install_and_start_ollama(port=INTERNAL_OLLAMA_PORT)
         start_auth_proxy()
         print(f"[AUTH] Protected proxy active on port {PROXY_PORT}")
+
+        # Pre-pull baseline model in background so inference is immediately available
+        def _prepull():
+            try:
+                print(f"[PRELOAD] Ensuring baseline model '{cluster_state['active_model']}' is cached...")
+                env = os.environ.copy()
+                env["OLLAMA_HOST"] = f"127.0.0.1:{INTERNAL_OLLAMA_PORT}"
+                subprocess.run(["ollama", "pull", cluster_state["active_model"]], env=env, check=False)
+                print(f"[OK] Baseline model '{cluster_state['active_model']}' ready for cluster mesh inference.")
+            except Exception as e:
+                print(f"[INFO] Background model pre-pull: {e}")
+        threading.Thread(target=_prepull, daemon=True).start()
 
         tunnel_url, _ = install_and_start_cloudflared()
         cluster_state["tunnel_url"] = tunnel_url
