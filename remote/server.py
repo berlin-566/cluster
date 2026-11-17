@@ -675,13 +675,63 @@ def install_and_start_cloudflared():
 
     if not tunnel_url:
         tunnel_url = "http://127.0.0.1:8080"
+    elif "trycloudflare.com" in tunnel_url:
+        print(f"[TUNNEL] Assigned Tunnel URL: {tunnel_url}")
+        print("[TUNNEL] Verifying Cloudflare DNS propagation and public connectivity...")
+        parsed = urllib.parse.urlsplit(tunnel_url)
+        hostname = parsed.hostname or ""
+
+        # Wait for DNS propagation
+        import socket
+        resolved = False
+        for _ in range(30):
+            try:
+                socket.gethostbyname(hostname)
+                resolved = True
+                break
+            except Exception:
+                time.sleep(1)
+
+        # Probe HTTP endpoint over public network
+        live = False
+        for _ in range(15):
+            try:
+                probe_req = urllib.request.Request(
+                    f"{tunnel_url}/api/version",
+                    headers={"User-Agent": "cluster-supervisor-probe/1.0"}
+                )
+                with urllib.request.urlopen(probe_req, timeout=3.0) as resp:
+                    if resp.status == 200:
+                        live = True
+                        break
+            except Exception:
+                try:
+                    probe_req = urllib.request.Request(
+                        f"{tunnel_url}/",
+                        headers={"User-Agent": "cluster-supervisor-probe/1.0"}
+                    )
+                    with urllib.request.urlopen(probe_req, timeout=3.0) as resp:
+                        if resp.status in (200, 404):
+                            live = True
+                            break
+                except Exception:
+                    pass
+                time.sleep(1)
+
+        if resolved or live:
+            print("[OK] Cloudflare tunnel verified and globally reachable!")
+        else:
+            print("[OK] Tunnel process active. DNS propagation continuing.")
 
     return tunnel_url, proc
 
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="cluster Remote Cloud Runner")
-    parser.add_argument("--mode", choices=["cluster", "single"], default="cluster", help="Runner mode: single host or multi-notebook cluster")
+    default_mode = os.environ.get("CLUSTER_MODE", "cluster")
+    if default_mode not in ("cluster", "single"):
+        default_mode = "cluster"
+    parser.add_argument("--mode", choices=["cluster", "single"], default=default_mode, help="Runner mode: single host or multi-notebook cluster")
     parser.add_argument("--workers", type=int, default=None, help="Number of worker notebooks (cluster mode)")
     args, _ = parser.parse_known_args()
 

@@ -60,7 +60,7 @@ def admin_connect(url: str, token: str) -> None:
         url_cleaned = "https://" + url_cleaned
 
     client = ClusterClient(remote_url=url_cleaned, auth_token=token)
-    health = client.health()
+    health = client.health(wait_for_dns=True)
 
     status = health.get("status")
     if status == "unauthorized":
@@ -102,7 +102,7 @@ def connect(url: str, token: Optional[str]) -> None:
         url_cleaned = "https://" + url_cleaned
 
     client = ClusterClient(remote_url=url_cleaned, auth_token=token)
-    health = client.health()
+    health = client.health(wait_for_dns=True)
 
     status = health.get("status")
     if status == "unauthorized":

@@ -37,31 +37,62 @@ class ClusterClient:
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         return opener.open(req, timeout=timeout)
 
-    def health(self) -> Dict[str, Any]:
-        """Check cloud server status, role, and round-trip latency."""
+    def health(self, wait_for_dns: bool = False, timeout_seconds: float = 35.0) -> Dict[str, Any]:
+        """Check cloud server status, role, and round-trip latency.
+        
+        Args:
+            wait_for_dns: If True, retries DNS resolution errors until timeout_seconds.
+            timeout_seconds: Maximum seconds to wait for DNS propagation.
+        """
         if not self.remote_url:
             return {"status": "error", "error": "No remote URL configured. Run 'cluster connect <url>' first."}
         
-        t0 = time.perf_counter()
-        headers = self._get_headers()
+        deadline = time.time() + (timeout_seconds if wait_for_dns else 0.0)
+        first_wait_notice = True
 
-        candidates = [
-            f"{self.remote_url}/_cluster/health",
-            f"{self.remote_url}/_host_it/health",
-            f"{self.remote_url}/api/version",
-            f"{self.remote_url}/",
-        ]
-        last_error = ""
+        while True:
+            t0 = time.perf_counter()
+            headers = self._get_headers()
 
-        for url in candidates:
-            try:
-                if HAS_HTTPX:
-                    with httpx.Client(timeout=10.0, follow_redirects=True, trust_env=False) as client:
-                        resp = client.get(url, headers=headers)
-                        latency = round((time.perf_counter() - t0) * 1000, 1)
-                        if resp.status_code == 200:
+            candidates = [
+                f"{self.remote_url}/_cluster/health",
+                f"{self.remote_url}/_host_it/health",
+                f"{self.remote_url}/api/version",
+                f"{self.remote_url}/",
+            ]
+            last_error = ""
+            dns_error = False
+
+            for url in candidates:
+                try:
+                    if HAS_HTTPX:
+                        with httpx.Client(timeout=10.0, follow_redirects=True, trust_env=False) as client:
+                            resp = client.get(url, headers=headers)
+                            latency = round((time.perf_counter() - t0) * 1000, 1)
+                            if resp.status_code == 200:
+                                try:
+                                    data = resp.json()
+                                except Exception:
+                                    data = {"status": "ok", "service": "ollama"}
+                                data["latency_ms"] = latency
+                                if "status" not in data:
+                                    data["status"] = "ok"
+                                if "service" not in data:
+                                    data["service"] = "ollama"
+                                return data
+                            elif resp.status_code == 401:
+                                return {"status": "unauthorized", "error": "Invalid auth token. Please check your token.", "latency_ms": latency}
+                            elif resp.status_code == 404:
+                                continue
+                            else:
+                                return {"status": "error", "error": f"HTTP {resp.status_code}: {resp.text}", "latency_ms": latency}
+                    else:
+                        req = urllib.request.Request(url, headers=headers, method="GET")
+                        with self._open_url(req, timeout=10.0) as resp:
+                            latency = round((time.perf_counter() - t0) * 1000, 1)
+                            content = resp.read().decode("utf-8")
                             try:
-                                data = resp.json()
+                                data = json.loads(content)
                             except Exception:
                                 data = {"status": "ok", "service": "ollama"}
                             data["latency_ms"] = latency
@@ -70,37 +101,35 @@ class ClusterClient:
                             if "service" not in data:
                                 data["service"] = "ollama"
                             return data
-                        elif resp.status_code == 401:
-                            return {"status": "unauthorized", "error": "Invalid auth token. Please check your token.", "latency_ms": latency}
-                        elif resp.status_code == 404:
-                            continue
-                        else:
-                            return {"status": "error", "error": f"HTTP {resp.status_code}: {resp.text}", "latency_ms": latency}
-                else:
-                    req = urllib.request.Request(url, headers=headers, method="GET")
-                    with self._open_url(req, timeout=10.0) as resp:
-                        latency = round((time.perf_counter() - t0) * 1000, 1)
-                        content = resp.read().decode("utf-8")
-                        try:
-                            data = json.loads(content)
-                        except Exception:
-                            data = {"status": "ok", "service": "ollama"}
-                        data["latency_ms"] = latency
-                        if "status" not in data:
-                            data["status"] = "ok"
-                        if "service" not in data:
-                            data["service"] = "ollama"
-                        return data
-            except urllib.error.HTTPError as e:
-                latency = round((time.perf_counter() - t0) * 1000, 1)
-                if e.code == 401:
-                    return {"status": "unauthorized", "error": "Invalid auth token.", "latency_ms": latency}
-                elif e.code == 404:
-                    continue
-                return {"status": "error", "error": f"HTTP {e.code}: {e.reason}", "latency_ms": latency}
-            except Exception as e:
-                last_error = str(e)
-                break
+                except urllib.error.HTTPError as e:
+                    latency = round((time.perf_counter() - t0) * 1000, 1)
+                    if e.code == 401:
+                        return {"status": "unauthorized", "error": "Invalid auth token.", "latency_ms": latency}
+                    elif e.code == 404:
+                        continue
+                    return {"status": "error", "error": f"HTTP {e.code}: {e.reason}", "latency_ms": latency}
+                except Exception as e:
+                    last_error = str(e)
+                    err_str = last_error.lower()
+                    if (
+                        "name or service not known" in err_str
+                        or "temporary failure in name resolution" in err_str
+                        or "getaddrinfo" in err_str
+                        or "nodename nor servname" in err_str
+                        or "connection refused" in err_str
+                        or "connecterror" in err_str
+                    ):
+                        dns_error = True
+                    break
+
+            if wait_for_dns and dns_error and time.time() < deadline:
+                if first_wait_notice:
+                    print("[CONNECT] Waiting for Cloudflare tunnel DNS to propagate (usually takes ~10-25s)...", flush=True)
+                    first_wait_notice = False
+                time.sleep(2)
+                continue
+
+            break
 
         return {"status": "unreachable", "error": last_error or "Endpoint not found", "latency_ms": -1}
 

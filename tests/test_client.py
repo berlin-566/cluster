@@ -156,6 +156,13 @@ class TestClient(unittest.TestCase):
             bad_client = ClusterClient(remote_url=f"http://127.0.0.1:{port}", auth_token="wrong-token")
             bad_health = bad_client.health()
             self.assertEqual(bad_health["status"], "unauthorized")
+
+            # DNS retry logic test with non-existent domain
+            fake_client = ClusterClient(remote_url="https://non-existent-cluster-host-999.trycloudflare.com")
+            res_no_wait = fake_client.health(wait_for_dns=False)
+            self.assertEqual(res_no_wait["status"], "unreachable")
+            res_short_wait = fake_client.health(wait_for_dns=True, timeout_seconds=0.1)
+            self.assertEqual(res_short_wait["status"], "unreachable")
         finally:
             server.shutdown()
             server.server_close()
