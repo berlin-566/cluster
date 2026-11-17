@@ -82,6 +82,9 @@ curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/desktop.sh 
 
 ### Step 2: Launch Your Cloud Host
 
+> [!NOTE]
+> **Status**: Single Notebook Host mode (`single.sh`) is fully optimized, verified, and recommended for immediate use (supports 2x Tesla T4 30GB on Kaggle or T4 on Colab). Multi-notebook cooperative mesh clustering (`cluster.sh` + `worker.sh`) is currently in active development.
+
 Choose between Single Notebook mode or Multi-Notebook Cluster mode:
 
 #### Option A: Single Notebook (Quick 1-GPU Host)

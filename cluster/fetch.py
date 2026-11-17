@@ -134,7 +134,7 @@ def search_models(query: str, pooled_vram_gb: float = 64.0) -> List[Dict[str, An
     if q:
         try:
             url = f"https://huggingface.co/api/models?search={urllib.parse.quote(q)}&filter=gguf&sort=downloads&direction=-1&limit=15"
-            req = urllib.request.Request(url, headers={"User-Agent": "cluster-client/0.1.0"})
+            req = urllib.request.Request(url, headers={"User-Agent": "cluster-client/0.0.1"})
             with urllib.request.urlopen(req, timeout=3.0) as resp:
                 if resp.status == 200:
                     data = json.loads(resp.read().decode("utf-8"))

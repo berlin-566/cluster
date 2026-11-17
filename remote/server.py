@@ -280,7 +280,7 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
                 "status": "ok",
                 "service": "cluster",
                 "role": role_assigned,
-                "version": "0.1.0",
+                "version": "0.0.1",
                 "cluster_health": cluster_state["health"],
             })
             return

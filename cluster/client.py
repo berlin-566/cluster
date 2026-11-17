@@ -24,7 +24,7 @@ class ClusterClient:
 
     def _get_headers(self, extra_headers: Optional[Dict[str, str]] = None) -> Dict[str, str]:
         headers = {
-            "User-Agent": "cluster-client/0.1.0",
+            "User-Agent": "cluster-client/0.0.1",
             "Content-Type": "application/json",
         }
         if self.auth_token:
