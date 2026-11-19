@@ -40,6 +40,3 @@ host-it = "cluster.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["cluster*"]
-
-[tool.setuptools.package-data]
-cluster = ["web/*"]

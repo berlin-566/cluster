@@ -1,8 +1,17 @@
 import unittest
 import time
-from remote.server import cluster_state, make_ollama_model_dict
+from remote.server import cluster_state, make_ollama_model_dict, calculate_shards
 
 class TestRemoteServer(unittest.TestCase):
+    def setUp(self):
+        with cluster_state["lock"]:
+            cluster_state["workers"].clear()
+            cluster_state["health"] = "HEALTHY"
+
+    def tearDown(self):
+        with cluster_state["lock"]:
+            cluster_state["workers"].clear()
+
     def test_make_ollama_model_dict(self):
         m = make_ollama_model_dict("qwen2.5:14b")
         self.assertEqual(m["name"], "qwen2.5:14b")
@@ -10,6 +19,72 @@ class TestRemoteServer(unittest.TestCase):
         self.assertIn("details", m)
         self.assertEqual(m["details"]["family"], "qwen2")
         self.assertEqual(m["details"]["parameter_size"], "14B")
+
+    def test_reentrant_lock_and_shards_zero_workers(self):
+        """Verify calling calculate_shards while holding the lock does not deadlock."""
+        with cluster_state["lock"]:
+            calculate_shards(total_layers=48)
+            self.assertEqual(cluster_state["leader_layers"], "0..47 (Full Model)")
+
+    def test_dynamic_sharding_one_worker(self):
+        """When 1 worker joins out of 3 expected, leader and worker divide layers dynamically."""
+        with cluster_state["lock"]:
+            cluster_state["workers"]["notebook-1"] = {
+                "name": "notebook-1",
+                "gpu_name": "Tesla T4",
+                "status": "HEALTHY",
+            }
+            cluster_state["workers"]["notebook-2"] = {
+                "name": "notebook-2",
+                "gpu_name": "Awaiting Worker Node",
+                "status": "WAITING_FOR_JOIN",
+            }
+            cluster_state["workers"]["notebook-3"] = {
+                "name": "notebook-3",
+                "gpu_name": "Awaiting Worker Node",
+                "status": "WAITING_FOR_JOIN",
+            }
+            calculate_shards(total_layers=48)
+
+            self.assertEqual(cluster_state["leader_layers"], "0..23 (Embeddings & Attention)")
+            self.assertEqual(cluster_state["workers"]["notebook-1"]["layers"], "24..47 (LM Head)")
+            self.assertEqual(cluster_state["workers"]["notebook-2"]["layers"], "Awaiting Join")
+            self.assertEqual(cluster_state["workers"]["notebook-3"]["layers"], "Awaiting Join")
+
+    def test_dynamic_sharding_two_workers(self):
+        """When 2 workers join, layers divide across 3 nodes."""
+        with cluster_state["lock"]:
+            cluster_state["workers"]["notebook-1"] = {
+                "name": "notebook-1",
+                "status": "HEALTHY",
+            }
+            cluster_state["workers"]["notebook-2"] = {
+                "name": "notebook-2",
+                "status": "HEALTHY",
+            }
+            cluster_state["workers"]["notebook-3"] = {
+                "name": "notebook-3",
+                "status": "WAITING_FOR_JOIN",
+            }
+            calculate_shards(total_layers=48)
+
+            self.assertEqual(cluster_state["leader_layers"], "0..15 (Embeddings & Attention)")
+            self.assertEqual(cluster_state["workers"]["notebook-1"]["layers"], "16..31 (Intermediate)")
+            self.assertEqual(cluster_state["workers"]["notebook-2"]["layers"], "32..47 (LM Head)")
+            self.assertEqual(cluster_state["workers"]["notebook-3"]["layers"], "Awaiting Join")
+
+    def test_dynamic_sharding_three_workers(self):
+        """When all 3 workers join, layers divide across 4 nodes."""
+        with cluster_state["lock"]:
+            cluster_state["workers"]["notebook-1"] = {"status": "HEALTHY"}
+            cluster_state["workers"]["notebook-2"] = {"status": "HEALTHY"}
+            cluster_state["workers"]["notebook-3"] = {"status": "HEALTHY"}
+            calculate_shards(total_layers=48)
+
+            self.assertEqual(cluster_state["leader_layers"], "0..11 (Embeddings & Attention)")
+            self.assertEqual(cluster_state["workers"]["notebook-1"]["layers"], "12..23 (Intermediate)")
+            self.assertEqual(cluster_state["workers"]["notebook-2"]["layers"], "24..35 (Intermediate)")
+            self.assertEqual(cluster_state["workers"]["notebook-3"]["layers"], "36..47 (LM Head)")
 
     def test_watchdog_waiting_for_join_not_disconnected(self):
         with cluster_state["lock"]:

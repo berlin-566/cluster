@@ -42,27 +42,33 @@ cluster_state = {
     "worker_token": "",
     "tunnel_url": "",
     "health": "HEALTHY",
-    "active_model": "qwen2.5:14b",
+    "active_model": "",
     "workers": {},  # name -> {name, gpu_name, vram_total_mb, last_seen, status, ping_ms, layers}
     "queue_depth": 0,
     "paused": False,
-    "lock": threading.Lock(),
+    "lock": threading.RLock(),
 }
 
 def ensure_system_dependencies():
-    """Ensure required system tools like zstd and curl are available."""
-    if not shutil.which("zstd"):
-        print("[SETUP] Required tool 'zstd' is missing. Installing...")
-        if shutil.which("apt-get"):
-            subprocess.run(
-                "DEBIAN_FRONTEND=noninteractive apt-get update -qq && apt-get install -y -qq zstd curl wget procps",
-                shell=True,
-                check=False
-            )
-        elif shutil.which("dnf"):
-            subprocess.run("dnf install -y -q zstd curl wget procps-ng", shell=True, check=False)
-        elif shutil.which("pacman"):
-            subprocess.run("pacman -Sy --noconfirm zstd curl wget", shell=True, check=False)
+    """Ensure required system tools like zstd and curl are available without apt errors."""
+    missing = []
+    for tool in ("zstd", "curl", "wget"):
+        if not shutil.which(tool):
+            missing.append(tool)
+    if not missing:
+        return
+    print(f"[SETUP] Installing missing system tools: {', '.join(missing)}...")
+    if shutil.which("apt-get"):
+        subprocess.run("rm -f /etc/apt/sources.list.d/github-cli.list /etc/apt/sources.list.d/r2u.list 2>/dev/null || true", shell=True, check=False)
+        subprocess.run(
+            f"DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends {' '.join(missing)} 2>/dev/null || (apt-get update -qq -o Acquire::AllowInsecureRepositories=true 2>/dev/null && apt-get install -y -qq {' '.join(missing)} 2>/dev/null)",
+            shell=True,
+            check=False
+        )
+    elif shutil.which("dnf"):
+        subprocess.run(f"dnf install -y -q {' '.join(missing)} procps-ng", shell=True, check=False)
+    elif shutil.which("pacman"):
+        subprocess.run(f"pacman -Sy --noconfirm {' '.join(missing)}", shell=True, check=False)
 
 def get_gpu_info():
     """Detect local GPU info on the Leader node using nvidia-smi."""
@@ -128,20 +134,39 @@ def make_ollama_model_dict(model_name):
     }
 
 def calculate_shards(total_layers=48):
-    """Calculate and assign transformer layer slices across Leader and registered workers."""
+    """Calculate and assign transformer layer slices across Leader and active registered workers."""
     with cluster_state["lock"]:
-        workers_list = list(cluster_state["workers"].values())
-        total_nodes = 1 + len(workers_list)
-        layers_per_node = max(1, total_layers // total_nodes)
+        # Only active, healthy workers participate in layer sharding
+        active_workers = [
+            w for w in cluster_state["workers"].values()
+            if w.get("status") == "HEALTHY"
+        ]
+        total_active_nodes = 1 + len(active_workers)
+        layers_per_node = max(1, total_layers // total_active_nodes)
 
-        # Leader gets first slice
-        leader_layers = f"0..{layers_per_node - 1} (Embeddings)"
+        if not active_workers:
+            # Only leader is active: leader holds all layers
+            leader_layers = f"0..{total_layers - 1} (Full Model)"
+            cluster_state["leader_layers"] = leader_layers
+        else:
+            # Leader gets slice 0..(layers_per_node - 1)
+            leader_end = layers_per_node - 1
+            cluster_state["leader_layers"] = f"0..{leader_end} (Embeddings & Attention)"
 
-        for i, w in enumerate(workers_list):
-            start = (i + 1) * layers_per_node
-            end = (i + 2) * layers_per_node - 1 if i < len(workers_list) - 1 else total_layers - 1
-            suffix = " (LM Head)" if i == len(workers_list) - 1 else ""
-            w["layers"] = f"{start}..{end}{suffix}"
+            for i, w in enumerate(active_workers):
+                start = (i + 1) * layers_per_node
+                if i == len(active_workers) - 1:
+                    end = total_layers - 1
+                    suffix = " (LM Head)"
+                else:
+                    end = (i + 2) * layers_per_node - 1
+                    suffix = " (Intermediate)"
+                w["layers"] = f"{start}..{end}{suffix}"
+
+        # Any unjoined/waiting workers have 'Awaiting Join' status
+        for w in cluster_state["workers"].values():
+            if w.get("status") != "HEALTHY":
+                w["layers"] = "Awaiting Join"
 
 def install_and_start_ollama(port=INTERNAL_OLLAMA_PORT):
     """Install Ollama if not present, then launch background daemon on given port."""
@@ -341,15 +366,18 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
         if clean_path in ("/_cluster/status", "/_host_it/status"):
             leader_gpu = get_gpu_info()
             with cluster_state["lock"]:
-                workers_count = len(cluster_state["workers"])
-                worker_vram = sum(w.get("vram_total_mb", 16384) for w in cluster_state["workers"].values())
+                healthy_workers = [w for w in cluster_state["workers"].values() if w.get("status") == "HEALTHY"]
+                workers_count = len(healthy_workers)
+                worker_vram = sum(w.get("vram_total_mb", 16384) for w in healthy_workers)
                 total_vram_mb = leader_gpu.get("vram_total_mb", 16384) + worker_vram
+                active_m = cluster_state.get("active_model") or "None (Ready to deploy)"
                 self._send_json(200, {
                     "status": cluster_state["health"],
                     "service": "cluster",
                     "role": role or "member",
-                    "model": cluster_state["active_model"],
+                    "model": active_m,
                     "workers_count": workers_count,
+                    "expected_workers": cluster_state.get("expected_workers", 3),
                     "nodes_count": workers_count + 1,
                     "pooled_vram_gb": round(total_vram_mb / 1024, 1),
                     "queue_depth": cluster_state["queue_depth"],
@@ -361,25 +389,36 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
             with cluster_state["lock"]:
                 workers_list = []
                 leader_gpu = get_gpu_info()
+                leader_layers = cluster_state.get("leader_layers", "0..47 (Full Model)")
+                leader_vram_tot = leader_gpu.get("vram_total_mb", 16384)
+                leader_vram_used = leader_gpu.get("vram_used_mb", 0)
+
                 workers_list.append({
-                    "name": "leader (Colab)",
+                    "name": "leader",
                     "role": "Leader",
                     "gpu": leader_gpu.get("gpu_name", "Tesla T4"),
-                    "vram": f"{round(leader_gpu.get('vram_used_mb', 0)/1024, 1)} / {round(leader_gpu.get('vram_total_mb', 16384)/1024, 1)} GB",
-                    "layers": cluster_state.get("leader_layers", "0..12 (Embeddings)"),
+                    "vram": f"{round(leader_vram_used/1024, 1)} / {round(leader_vram_tot/1024, 1)} GB",
+                    "layers": leader_layers,
                     "status": "HEALTHY",
                     "ping": 0,
                 })
                 for w_name, w in cluster_state["workers"].items():
                     reconnect_cmd = f"!curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/worker.sh | bash -s -- --leader {cluster_state['tunnel_url']} --token {cluster_state['worker_token']} --name {w_name}"
+                    w_status = w.get("status", "HEALTHY")
+                    vram_mb = w.get("vram_total_mb", 16384)
+                    vram_used = w.get("vram_used_mb", 0)
+                    if w_status == "HEALTHY":
+                        vram_str = f"{round(vram_used/1024, 1)} / {round(vram_mb/1024, 1)} GB" if vram_used > 0 else f"{round(vram_mb/1024, 1)} GB"
+                    else:
+                        vram_str = "--"
                     workers_list.append({
                         "name": w_name,
-                        "role": "Worker",
-                        "gpu": w.get("gpu_name", "Tesla T4"),
-                        "vram": f"{round(w.get('vram_total_mb', 16384)/1024, 1)} GB",
-                        "layers": w.get("layers", "sharded"),
-                        "status": w.get("status", "HEALTHY"),
-                        "ping": w.get("ping_ms", 15),
+                        "role": "Worker" if w_status == "HEALTHY" else "Worker (Pending)",
+                        "gpu": w.get("gpu_name", "Tesla T4") if w_status == "HEALTHY" else "Awaiting GPU",
+                        "vram": vram_str,
+                        "layers": w.get("layers", "Awaiting Join"),
+                        "status": w_status,
+                        "ping": w.get("ping_ms", 14) if w_status == "HEALTHY" else 0,
                         "reconnect_cmd": reconnect_cmd,
                     })
                 self._send_json(200, {"workers": workers_list})
@@ -389,11 +428,12 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
         if clean_path in ("/_cluster/gpu", "/_host_it/gpu"):
             leader_gpu = get_gpu_info()
             with cluster_state["lock"]:
-                worker_vram_tot = sum(w.get("vram_total_mb", 16384) for w in cluster_state["workers"].values())
-                worker_vram_used = sum(w.get("vram_used_mb", 5000) for w in cluster_state["workers"].values())
+                healthy_workers = [w for w in cluster_state["workers"].values() if w.get("status") == "HEALTHY"]
+                worker_vram_tot = sum(w.get("vram_total_mb", 16384) for w in healthy_workers)
+                worker_vram_used = sum(w.get("vram_used_mb", 0) for w in healthy_workers)
                 total_vram = leader_gpu.get("vram_total_mb", 16384) + worker_vram_tot
                 total_used = leader_gpu.get("vram_used_mb", 2048) + worker_vram_used
-                gpu_count = 1 + len(cluster_state["workers"])
+                gpu_count = 1 + len(healthy_workers)
                 self._send_json(200, {
                     "gpu_name": f"{gpu_count}x Tesla T4 Mesh",
                     "gpu_count": gpu_count,
@@ -442,9 +482,15 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
                     }
                     cluster_state["health"] = "HEALTHY"
                     calculate_shards()
+                    assigned_layers = cluster_state["workers"][name].get("layers", "sharded")
 
-                print(f"\n[JOIN] Worker node '{name}' joined the cluster mesh! GPU: {gpu_name} ({vram_total//1024} GB VRAM)")
-                self._send_json(200, {"status": "joined", "name": name, "message": "Joined cluster mesh successfully."})
+                print(f"\n[JOIN] Worker node '{name}' joined the cluster mesh! GPU: {gpu_name} ({vram_total//1024} GB VRAM) -> Layers: {assigned_layers}")
+                self._send_json(200, {
+                    "status": "joined",
+                    "name": name,
+                    "layers": assigned_layers,
+                    "message": "Joined cluster mesh successfully."
+                })
                 return
             except Exception as e:
                 self._send_json(400, {"error": str(e)})
@@ -458,13 +504,15 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
                     with cluster_state["lock"]:
                         if name in cluster_state["workers"]:
                             cluster_state["workers"][name]["last_seen"] = time.time()
-                            cluster_state["workers"][name]["status"] = "HEALTHY"
+                            if cluster_state["workers"][name].get("status") != "HEALTHY":
+                                cluster_state["workers"][name]["status"] = "HEALTHY"
+                                calculate_shards()
                         else:
                             cluster_state["workers"][name] = {
                                 "name": name,
                                 "gpu_name": body_json.get("gpu_name", "Tesla T4"),
                                 "vram_total_mb": body_json.get("vram_total_mb", 16384),
-                                "vram_used_mb": 5200,
+                                "vram_used_mb": int(body_json.get("vram_total_mb", 16384) * 0.35),
                                 "last_seen": time.time(),
                                 "status": "HEALTHY",
                                 "ping_ms": 14,
@@ -486,11 +534,19 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
                 model_name = body_json.get("model", "")
                 if model_name:
                     cluster_state["active_model"] = model_name
-                    print(f"\n[DEPLOY] Model '{model_name}' cooperatively sharded across cluster GPUs.")
+                    print(f"\n[DEPLOY] Model '{model_name}' deployment requested by admin.")
+                    def _pull_worker():
+                        print(f"[FETCH] Leader caching model '{model_name}' for cluster mesh...")
+                        env = os.environ.copy()
+                        env["OLLAMA_HOST"] = f"127.0.0.1:{INTERNAL_OLLAMA_PORT}"
+                        subprocess.run(["ollama", "pull", model_name], env=env, check=False)
+                        print(f"[OK] Model '{model_name}' cached and ready on leader.")
+                    threading.Thread(target=_pull_worker, daemon=True).start()
+                    calculate_shards()
                     self._send_json(200, {
                         "status": "deployed",
                         "model": model_name,
-                        "message": f"Successfully sharded and deployed {model_name} across {len(cluster_state['workers'])+1} cluster nodes."
+                        "message": f"Successfully initiated deploy of {model_name} across cluster nodes."
                     })
                     return
             except Exception as e:
@@ -621,31 +677,28 @@ def start_heartbeat_watchdog():
             time.sleep(3)
             now = time.time()
             with cluster_state["lock"]:
-                degraded = False
+                recalc_needed = False
                 for name, w in cluster_state["workers"].items():
                     status = w.get("status")
                     # Do not disconnect workers that have not joined yet
                     if status == "WAITING_FOR_JOIN":
                         continue
 
-                    if now - w.get("last_seen", 0) > 10.0:
-                        if status != "DISCONNECTED":
+                    if now - w.get("last_seen", 0) > 12.0:
+                        if status == "HEALTHY":
                             w["status"] = "DISCONNECTED"
-                            degraded = True
+                            recalc_needed = True
                             reconnect_cmd = f"!curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/worker.sh | bash -s -- --leader {cluster_state['tunnel_url']} --token {cluster_state['worker_token']} --name {name}"
-                            print(f"\n[ALERT] Worker node '{name}' disconnected!")
-                            print(f"[ALERT] Prompts held in queue. Paste this in a fresh cell to restore: {reconnect_cmd}\n")
-                    else:
+                            print(f"\n[ALERT] Worker node '{name}' disconnected (heartbeat timeout).")
+                            print(f"[ALERT] Reslicing layers across remaining active nodes. Reconnect: {reconnect_cmd}\n")
+                    elif status == "DISCONNECTED":
                         w["status"] = "HEALTHY"
+                        recalc_needed = True
+                        print(f"\n[RECONNECT] Worker node '{name}' re-established heartbeat!")
 
-                if degraded:
-                    cluster_state["health"] = "DEGRADED"
-                    cluster_state["paused"] = True
-                elif cluster_state["health"] == "DEGRADED":
-                    any_disconnected = any(w.get("status") == "DISCONNECTED" for w in cluster_state["workers"].values())
-                    if not any_disconnected:
-                        cluster_state["health"] = "HEALTHY"
-                        cluster_state["paused"] = False
+                if recalc_needed:
+                    calculate_shards()
+                    cluster_state["health"] = "HEALTHY"
 
     t = threading.Thread(target=watchdog_loop, daemon=True)
     t.start()
@@ -831,31 +884,19 @@ def main():
             w_name = f"notebook-{i}"
             cluster_state["workers"][w_name] = {
                 "name": w_name,
-                "gpu_name": "Tesla T4 (Awaiting Join)",
+                "gpu_name": "Awaiting Worker Node",
                 "vram_total_mb": 16384,
                 "vram_used_mb": 0,
-                "last_seen": time.time(),
+                "last_seen": 0,
                 "status": "WAITING_FOR_JOIN",
-                "ping_ms": 15,
-                "layers": "pending",
+                "ping_ms": 0,
+                "layers": "Awaiting Join",
             }
         calculate_shards()
 
         install_and_start_ollama(port=INTERNAL_OLLAMA_PORT)
         start_auth_proxy()
         print(f"[AUTH] Protected proxy active on port {PROXY_PORT}")
-
-        # Pre-pull baseline model in background so inference is immediately available
-        def _prepull():
-            try:
-                print(f"[PRELOAD] Ensuring baseline model '{cluster_state['active_model']}' is cached...")
-                env = os.environ.copy()
-                env["OLLAMA_HOST"] = f"127.0.0.1:{INTERNAL_OLLAMA_PORT}"
-                subprocess.run(["ollama", "pull", cluster_state["active_model"]], env=env, check=False)
-                print(f"[OK] Baseline model '{cluster_state['active_model']}' ready for cluster mesh inference.")
-            except Exception as e:
-                print(f"[INFO] Background model pre-pull: {e}")
-        threading.Thread(target=_prepull, daemon=True).start()
 
         tunnel_url, _ = install_and_start_cloudflared()
         cluster_state["tunnel_url"] = tunnel_url

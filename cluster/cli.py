@@ -1,7 +1,6 @@
 import sys
 import os
 import time
-import webbrowser
 import click
 from typing import Optional
 
@@ -86,7 +85,7 @@ def admin_connect(url: str, token: str) -> None:
     click.echo("  cluster fetch <model>      - Search and cooperatively deploy models")
     click.echo("  cluster cluster status     - Check multi-node mesh health")
     click.echo("  cluster cluster workers    - List worker nodes and reconnect commands")
-    click.echo("  cluster ui                 - Launch Cortex.io-style matte-black web dashboard\n")
+    click.echo("  cluster ui                 - Launch terminal cockpit TUI dashboard\n")
 
 # =============================================================
 # Member Connect & Status
@@ -238,12 +237,16 @@ def cluster_status() -> None:
     c_status = client.get_cluster_status()
 
     click.secho("\n=== cluster Distributed GPU Mesh Status ===", fg="cyan", bold=True)
-    click.echo(f"Health Pill:      {c_status.get('status', 'HEALTHY').upper()}")
+    click.echo(f"Health:           {c_status.get('status', 'HEALTHY').upper()}")
     click.echo(f"Latency:          {c_status.get('latency_ms', 0)} ms")
-    click.echo(f"Worker Nodes:     {c_status.get('workers_count', 3)} Connected Workers + 1 Leader")
-    click.echo(f"Pooled VRAM:      {c_status.get('pooled_vram_gb', 64.0)} GB Total")
+    workers_cnt = c_status.get('workers_count', 0)
+    expected_cnt = c_status.get('expected_workers', 3)
+    nodes_cnt = c_status.get('nodes_count', workers_cnt + 1)
+    click.echo(f"Worker Nodes:     {workers_cnt} Active Workers ({nodes_cnt} GPUs total, {expected_cnt} expected)")
+    click.echo(f"Pooled VRAM:      {c_status.get('pooled_vram_gb', 0.0)} GB Total")
     cfg = load_config()
-    click.echo(f"Active Model:     {cfg.get('last_model') or 'qwen2.5:14b'}")
+    model_name = c_status.get('model') or cfg.get('last_model') or 'None'
+    click.echo(f"Active Model:     {model_name}")
     click.echo("")
 
 @cluster_group.command("workers")
@@ -252,43 +255,39 @@ def cluster_workers() -> None:
     client = ClusterClient()
     workers = client.get_workers()
 
-    # If remote didn't return custom worker list, generate standard layout
     if not workers:
-        workers = [
-            {"name": "leader (Colab)", "role": "Leader", "gpu": "Tesla T4", "vram": "6.4 / 16.0 GB", "layers": "0..12", "status": "HEALTHY", "ping": 0},
-            {"name": "notebook-1 (Colab)", "role": "Worker", "gpu": "Tesla T4", "vram": "5.2 / 16.0 GB", "layers": "13..24", "status": "HEALTHY", "ping": 12},
-            {"name": "notebook-2 (Kaggle)", "role": "Worker", "gpu": "Tesla T4", "vram": "5.1 / 16.0 GB", "layers": "25..36", "status": "HEALTHY", "ping": 18},
-            {"name": "notebook-3 (Colab)", "role": "Worker", "gpu": "Tesla T4", "vram": "5.1 / 16.0 GB", "layers": "37..48", "status": "HEALTHY", "ping": 14},
-        ]
+        click.secho("\n[WARN] No worker telemetry available from remote coordinator.", fg="yellow")
+        click.echo("Check that the leader notebook is running and reachable via tunnel.\n")
+        return
 
-    click.secho(f"\n{'NODE':<22} {'ROLE':<10} {'GPU':<14} {'VRAM':<18} {'LAYERS':<12} {'PING':<8} {'STATUS'}", bold=True, fg="cyan")
-    click.echo("-" * 96)
+    click.secho(f"\n{'NODE':<20} {'ROLE':<10} {'GPU':<20} {'VRAM':<18} {'LAYERS':<26} {'PING':<8} {'STATUS'}", bold=True, fg="cyan")
+    click.echo("-" * 112)
     for w in workers:
         name = w.get("name", "node")
         role = w.get("role", "Worker")
         gpu = w.get("gpu", "Tesla T4")
         vram = w.get("vram", "16 GB")
         layers = w.get("layers", "all")
-        ping = f"{w.get('ping', 0)} ms"
+        ping = f"{w.get('ping', 0)} ms" if w.get("status") == "HEALTHY" else "--"
         status = w.get("status", "HEALTHY")
-        click.echo(f"{name:<22} {role:<10} {gpu:<14} {vram:<18} {layers:<12} {ping:<8} {status}")
+        status_color = "green" if status == "HEALTHY" else ("yellow" if status == "WAITING_FOR_JOIN" else "red")
+        status_str = click.style(status, fg=status_color)
+        click.echo(f"{name:<20} {role:<10} {gpu:<20} {vram:<18} {layers:<26} {ping:<8} {status_str}")
 
-    click.echo("\nWorker Reconnect Command (paste into fresh notebook cell if disconnected):")
+    click.echo("\nWorker Join / Reconnect Command (run on secondary notebook):")
     cfg = load_config()
     remote_url = cfg.get("remote_url", "https://cluster.trycloudflare.com")
-    token = cfg.get("auth_token", "cluster-sec-worker")
-    click.secho(f"!curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/remote/worker.sh | bash -s -- --leader {remote_url} --token {token}\n", fg="yellow")
+    token = cfg.get("auth_token", "cluster-worker-token")
+    click.secho(f"!curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/worker.sh | bash -s -- --leader {remote_url} --token {token}\n", fg="yellow")
 
 # =============================================================
-# Desktop UI Dashboard (cluster ui [--web])
+# Desktop UI Dashboard (cluster ui)
 # =============================================================
 @main.command()
 @click.option("--port", default=DEFAULT_HUB_PORT, help="Port for the Hub / API Engine (default: 2424).")
 @click.option("--proxy-port", default=DEFAULT_PROXY_PORT, help="Port for the Transparent API Proxy (default: 8080).")
-@click.option("--web", is_flag=True, help="Launch the legacy browser-based web dashboard instead of the TUI.")
-@click.option("--no-browser", is_flag=True, help="Do not open the default web browser automatically (used with --web).")
-def ui(port: int, proxy_port: int, web: bool, no_browser: bool) -> None:
-    """Launch the cluster TUI Desktop Dashboard (or browser with --web)."""
+def ui(port: int, proxy_port: int) -> None:
+    """Launch the cluster TUI Desktop Cockpit Dashboard."""
     # Launch Port 8080 Transparent Proxy in background
     try:
         start_proxy_background(port=proxy_port)
@@ -301,27 +300,7 @@ def ui(port: int, proxy_port: int, web: bool, no_browser: bool) -> None:
     except Exception:
         pass
 
-    if web:
-        click.secho("\n=======================================================", fg="cyan")
-        click.secho("  cluster: Multi-Notebook Distributed GPU Mesh", fg="cyan", bold=True)
-        click.secho("=======================================================", fg="cyan")
-        dashboard_url = f"http://127.0.0.1:{port}"
-        click.secho(f"[HUB]   Matte-Black Web Dashboard: {dashboard_url}", fg="green", bold=True)
-        if not no_browser:
-            click.echo("[UI]    Opening dashboard in your default browser...")
-            try:
-                webbrowser.open(dashboard_url)
-            except Exception:
-                pass
-
-        click.echo("\n[READY] cluster web runtime active. Press Ctrl+C to stop.\n")
-        try:
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            click.echo("\n[STOP] Shutting down cluster UI and Proxy...")
-    else:
-        run_tui(hub_port=port, proxy_port=proxy_port)
+    run_tui(hub_port=port, proxy_port=proxy_port)
 
 # =============================================================
 # Inference Bridge & API Server (cluster serve [--port 8080])

@@ -51,15 +51,15 @@ from cluster.fetch import search_models
 
 logger = logging.getLogger("cluster.tui")
 
-# ANSI fallback colors
+# ANSI fallback colors (minimalist & clean)
 COLOR_RESET = "\033[0m"
 COLOR_BOLD = "\033[1m"
-COLOR_CYAN = "\033[36m"
+COLOR_DIM = "\033[2m"
+COLOR_RED = "\033[31m"
 COLOR_GREEN = "\033[32m"
 COLOR_YELLOW = "\033[33m"
-COLOR_RED = "\033[31m"
-COLOR_DIM = "\033[2m"
-COLOR_MAGENTA = "\033[35m"
+COLOR_CYAN = "\033[37m"
+COLOR_MAGENTA = "\033[37m"
 
 # -------------------------------------------------------------
 # Backwards-Compatible CLI Helpers
@@ -74,25 +74,25 @@ def print_banner(model: str, gpu_info: Dict[str, Any], latency: float) -> None:
     if HAS_RICH:
         console = Console()
         content = (
-            f"[bold cyan]Model:[/bold cyan] [bold green]{model}[/bold green]\n"
-            f"[bold cyan]Cloud GPU:[/bold cyan] {gpu_name} (VRAM: {vram_str})\n"
-            f"[bold cyan]Latency:[/bold cyan] {latency:.1f} ms\n\n"
+            f"[bold #ffffff]Model:[/bold #ffffff] [#ececee]{model}[/#ececee]\n"
+            f"[dim]Cloud GPU:[/dim] [#ececee]{gpu_name}[/#ececee] (VRAM: {vram_str})\n"
+            f"[dim]Latency:[/dim] {latency:.1f} ms\n\n"
             f"[dim]Commands: /model <name>, /models, /gpu, /status, /clear, /exit[/dim]"
         )
-        console.print(Panel(content, title="[bold magenta]cluster Terminal Chat[/bold magenta]", border_style="cyan"))
+        console.print(Panel(content, title="cluster Terminal Chat", border_style="#333338"))
     else:
         print(f"\n{COLOR_BOLD}cluster Terminal Chat{COLOR_RESET}")
-        print(f"  {COLOR_CYAN}Model:{COLOR_RESET} {COLOR_BOLD}{COLOR_GREEN}{model}{COLOR_RESET}")
-        print(f"  {COLOR_CYAN}Cloud GPU:{COLOR_RESET} {gpu_name} (VRAM: {vram_str})")
-        print(f"  {COLOR_CYAN}Latency:{COLOR_RESET} {latency:.1f} ms")
+        print(f"  Model:     {model}")
+        print(f"  Cloud GPU: {gpu_name} (VRAM: {vram_str})")
+        print(f"  Latency:   {latency:.1f} ms")
         print(f"  {COLOR_DIM}Commands: /model <name>, /models, /gpu, /status, /clear, /exit{COLOR_RESET}\n")
 
 def display_gpu(gpu_info: Dict[str, Any]) -> None:
     if HAS_RICH:
         console = Console()
-        table = Table(title="Remote Cloud GPU Telemetry", border_style="cyan")
-        table.add_column("Property", style="bold cyan")
-        table.add_column("Value", style="green")
+        table = Table(title="Remote Cloud GPU Telemetry", border_style="#333338")
+        table.add_column("Property", style="bold #ececee")
+        table.add_column("Value", style="#ececee")
 
         table.add_row("GPU Model", str(gpu_info.get("gpu_name", "N/A")))
         table.add_row("VRAM Used", f"{gpu_info.get('vram_used_mb', 0)} MB")
@@ -101,7 +101,7 @@ def display_gpu(gpu_info: Dict[str, Any]) -> None:
         table.add_row("Temperature", f"{gpu_info.get('temp_c', 'N/A')} C")
         console.print(table)
     else:
-        print(f"\n{COLOR_BOLD}{COLOR_CYAN}[GPU Telemetry]{COLOR_RESET}")
+        print(f"\n[GPU Telemetry]")
         print(f"  Model:       {gpu_info.get('gpu_name', 'N/A')}")
         print(f"  VRAM:        {gpu_info.get('vram_used_mb', 0)} MB / {gpu_info.get('vram_total_mb', 0)} MB")
         print(f"  Utilization: {gpu_info.get('gpu_util_pct', 'N/A')}%")
@@ -135,7 +135,7 @@ def interactive_chat(model_override: Optional[str] = None) -> None:
 
     while True:
         try:
-            prompt_str = f"{COLOR_BOLD}{COLOR_CYAN}[cluster: {current_model}]{COLOR_RESET} > "
+            prompt_str = f"{COLOR_BOLD}{current_model}{COLOR_RESET} > "
             user_input = input(prompt_str).strip()
         except (KeyboardInterrupt, EOFError):
             print(f"\n{COLOR_DIM}Exiting chat.{COLOR_RESET}")
@@ -150,11 +150,11 @@ def interactive_chat(model_override: Optional[str] = None) -> None:
             arg = parts[1].strip() if len(parts) > 1 else ""
 
             if cmd in ("/exit", "/quit"):
-                print(f"{COLOR_DIM}Goodbye!{COLOR_RESET}")
+                print(f"{COLOR_DIM}Goodbye.{COLOR_RESET}")
                 break
             elif cmd == "/clear":
                 messages.clear()
-                print(f"{COLOR_GREEN}[OK] Conversation history cleared.{COLOR_RESET}")
+                print("Conversation history cleared.")
                 continue
             elif cmd == "/gpu":
                 stats = client.gpu_stats()
@@ -166,12 +166,12 @@ def interactive_chat(model_override: Optional[str] = None) -> None:
                 continue
             elif cmd == "/models":
                 installed = client.list_models()
-                print(f"\n{COLOR_BOLD}{COLOR_CYAN}Installed Models on Cloud GPU:{COLOR_RESET}")
+                print(f"\nInstalled Models on Cloud GPU:")
                 for m in installed:
                     m_name = m.get("name", "unknown")
                     size_gb = round(m.get("size", 0) / (1024**3), 2)
-                    mark = f" {COLOR_GREEN}*(active)*{COLOR_RESET}" if m_name == current_model else ""
-                    print(f"  - {COLOR_BOLD}{m_name}{COLOR_RESET} ({size_gb} GB){mark}")
+                    mark = " *(active)*" if m_name == current_model else ""
+                    print(f"  - {m_name} ({size_gb} GB){mark}")
                 print()
                 continue
             elif cmd == "/model":
@@ -180,7 +180,7 @@ def interactive_chat(model_override: Optional[str] = None) -> None:
                 else:
                     current_model = arg
                     update_config(last_model=current_model)
-                    print(f"{COLOR_GREEN}[OK] Switched to model: {current_model}{COLOR_RESET}")
+                    print(f"Switched to model: {current_model}")
                 continue
             elif cmd == "/help":
                 print("\nAvailable commands:")
@@ -192,11 +192,11 @@ def interactive_chat(model_override: Optional[str] = None) -> None:
                 print("  /exit          - Exit chat\n")
                 continue
             else:
-                print(f"{COLOR_YELLOW}Unknown command: {cmd}. Type /help for available commands.{COLOR_RESET}")
+                print(f"Unknown command: {cmd}. Type /help for available commands.")
                 continue
 
         messages.append({"role": "user", "content": user_input})
-        print(f"\n{COLOR_BOLD}{COLOR_GREEN}Assistant:{COLOR_RESET} ", end="", flush=True)
+        print(f"\n{COLOR_BOLD}Assistant:{COLOR_RESET} ", end="", flush=True)
 
         full_reply = []
         try:
@@ -239,21 +239,21 @@ if HAS_TEXTUAL:
 
     TEXTUAL_CSS = """
     Screen {
-        background: #080c14;
-        color: #e2e8f0;
+        background: #1f1f23;
+        color: #ececee;
     }
 
     Header {
-        background: #0e1424;
-        color: #00f0ff;
+        background: #18181b;
+        color: #ececee;
         dock: top;
         height: 1;
-        text-style: bold;
+        text-style: none;
     }
 
     Footer {
-        background: #0e1424;
-        color: #64748b;
+        background: #18181b;
+        color: #98989f;
         dock: bottom;
         height: 1;
     }
@@ -263,76 +263,77 @@ if HAS_TEXTUAL:
     }
 
     Tabs {
-        background: #0b101b;
-        border-bottom: solid #1e293b;
+        background: #18181b;
+        border-bottom: solid #2a2a2f;
         height: 3;
     }
 
     Tab {
         padding: 0 2;
-        color: #94a3b8;
-        text-style: bold;
+        color: #98989f;
+        text-style: none;
     }
 
     Tab:hover {
-        color: #38bdf8;
-        background: #131c2e;
+        color: #ececee;
+        background: #26262a;
     }
 
     Tab.-active {
-        color: #00f0ff;
-        background: #111a2e;
-        border-bottom: tall #00f0ff;
+        color: #ffffff;
+        background: #242428;
+        border-bottom: tall #ececee;
         text-style: bold;
     }
 
     TabPane {
         padding: 1 1;
-        background: #080c14;
+        background: #1f1f23;
     }
 
-    /* Top Telemetry HUD */
+    /* Top Telemetry Bar */
     #top-bar {
         height: 3;
-        background: #0e1424;
-        border-bottom: solid #1e293b;
+        background: #18181b;
+        border-bottom: solid #2a2a2f;
         padding: 0 1;
         align-vertical: middle;
     }
 
     .banner-title {
-        color: #00f0ff;
+        color: #ffffff;
         text-style: bold;
         padding-right: 2;
     }
 
     .badge-healthy {
-        background: #064e3b;
-        color: #34d399;
-        text-style: bold;
+        background: #26262a;
+        color: #4ade80;
+        border: solid #333338;
         padding: 0 1;
         margin-right: 1;
     }
 
     .badge-model {
-        background: #172554;
-        color: #38bdf8;
-        text-style: bold;
+        background: #26262a;
+        color: #ececee;
+        border: solid #333338;
         padding: 0 1;
         margin-right: 1;
     }
 
     .badge-vram {
-        background: #3b0764;
-        color: #c084fc;
-        text-style: bold;
+        background: #26262a;
+        color: #ececee;
+        border: solid #333338;
         padding: 0 1;
         margin-right: 1;
     }
 
     .badge-proxy {
-        background: #1e293b;
-        color: #cbd5e1;
+        background: #26262a;
+        color: #98989f;
+        border: solid #333338;
         padding: 0 1;
         margin-right: 1;
     }
@@ -343,27 +344,34 @@ if HAS_TEXTUAL:
     }
 
     #dag-scroll-view {
-        width: 62%;
+        width: 58%;
         height: 100%;
         padding: 1 2;
-        background: #090e18;
-        border-right: solid #1e293b;
+        background: #1f1f23;
+        border-right: solid #2a2a2f;
+    }
+
+    .dag-section-label {
+        color: #98989f;
+        margin-bottom: 1;
+        text-style: bold;
     }
 
     #inspector-view {
-        width: 38%;
+        width: 42%;
         height: 100%;
         padding: 1 2;
-        background: #0c1220;
-        border-left: solid #1e293b;
+        background: #18181b;
+        border-left: solid #2a2a2f;
     }
 
     .dag-node-btn {
         margin: 0 0 1 0;
-        border: round #334155;
-        background: #0f172a;
+        border: round #333338;
+        background: #26262a;
         height: auto;
-        color: #f1f5f9;
+        color: #ececee;
+        text-align: left;
     }
 
     .node-full-width {
@@ -380,52 +388,54 @@ if HAS_TEXTUAL:
         width: 1fr;
         height: auto;
         margin: 0 1;
+        text-align: left;
     }
 
     .dag-node-btn:hover {
-        background: #1e293b;
-        border: round #00f0ff;
+        background: #2e2e33;
+        border: round #52525b;
     }
 
     .dag-node-btn:focus {
-        background: #1e293b;
-        border: round #00f0ff;
+        background: #2e2e33;
+        border: round #ececee;
     }
 
     .node-admin {
-        border: round #ec4899;
+        border: round #3a3a42;
     }
 
     .node-leader {
-        border: round #00f0ff;
+        border: round #3a3a42;
     }
 
     .node-worker {
-        border: round #10b981;
+        border: round #333338;
     }
 
     .node-members {
-        border: round #a855f7;
+        border: round #3a3a42;
     }
 
     .dag-connector {
-        color: #475569;
+        color: #6e6e76;
         text-align: center;
-        height: auto;
+        height: 1;
+        margin-bottom: 1;
     }
 
     /* Inspector Drawer */
     #inspector-title {
-        color: #00f0ff;
+        color: #ffffff;
         text-style: bold;
-        border-bottom: solid #334155;
+        border-bottom: solid #2a2a2f;
         padding-bottom: 1;
         margin-bottom: 1;
     }
 
     #inspector-content {
         height: 1fr;
-        color: #cbd5e1;
+        color: #ececee;
     }
 
     #inspector-actions {
@@ -436,11 +446,17 @@ if HAS_TEXTUAL:
 
     .action-btn {
         margin-right: 1;
+        background: #26262a;
+        border: solid #333338;
+        color: #ececee;
+    }
+
+    .action-btn:hover {
+        background: #333338;
     }
 
     #inspector-status-msg {
-        color: #34d399;
-        text-style: bold;
+        color: #4ade80;
         margin-top: 1;
         height: 2;
     }
@@ -453,33 +469,40 @@ if HAS_TEXTUAL:
 
     #model-search-input {
         width: 70%;
-        background: #0f172a;
-        border: round #334155;
-        color: #f1f5f9;
+        background: #26262a;
+        border: solid #333338;
+        color: #ececee;
     }
 
     #model-search-btn {
         width: 15%;
         margin-left: 1;
+        background: #26262a;
+        border: solid #333338;
+        color: #ececee;
     }
 
     #model-deploy-btn {
         width: 15%;
         margin-left: 1;
+        background: #26262a;
+        border: solid #333338;
+        color: #ececee;
     }
 
     #models-table {
         height: 1fr;
-        border: round #334155;
-        background: #090e18;
+        border: solid #2a2a2f;
+        background: #18181b;
+        color: #ececee;
     }
 
     #model-details-panel {
-        height: 5;
-        border-top: solid #334155;
+        height: 3;
+        border-top: solid #2a2a2f;
         padding: 1;
-        color: #94a3b8;
-        background: #0c1220;
+        color: #98989f;
+        background: #18181b;
     }
 
     /* Chat Tab */
@@ -489,9 +512,10 @@ if HAS_TEXTUAL:
 
     #chat-log {
         height: 1fr;
-        background: #090e18;
-        border: round #334155;
+        background: #18181b;
+        border: solid #2a2a2f;
         padding: 1;
+        color: #ececee;
     }
 
     #chat-input-bar {
@@ -501,49 +525,57 @@ if HAS_TEXTUAL:
 
     #chat-input {
         width: 80%;
-        background: #0f172a;
-        border: round #334155;
-        color: #f1f5f9;
+        background: #26262a;
+        border: solid #333338;
+        color: #ececee;
     }
 
     #btn-chat-send {
         width: 10%;
         margin-left: 1;
+        background: #26262a;
+        border: solid #333338;
+        color: #ececee;
     }
 
     #btn-chat-clear {
         width: 10%;
         margin-left: 1;
+        background: #26262a;
+        border: solid #333338;
+        color: #98989f;
     }
 
     /* Team & Traffic Tab */
     #team-stats-bar {
-        height: 5;
+        height: 4;
         margin-bottom: 1;
     }
 
     .stat-card {
         width: 1fr;
         height: 100%;
-        background: #0f172a;
-        border: round #334155;
-        padding: 1;
+        background: #26262a;
+        border: solid #333338;
+        padding: 0 1;
         margin-right: 1;
-        color: #00f0ff;
+        color: #ececee;
     }
 
     #team-table {
         height: 1fr;
-        border: round #334155;
-        background: #090e18;
+        border: solid #2a2a2f;
+        background: #18181b;
+        color: #ececee;
     }
 
     /* System Logs Tab */
     #logs-log {
         height: 1fr;
-        border: round #334155;
-        background: #090e18;
+        border: solid #2a2a2f;
+        background: #18181b;
         padding: 1;
+        color: #ececee;
     }
 
     #logs-control-bar {
@@ -551,19 +583,27 @@ if HAS_TEXTUAL:
         margin-top: 1;
     }
 
+    #btn-clear-logs, #btn-test-log {
+        background: #26262a;
+        border: solid #333338;
+        color: #ececee;
+        margin-right: 1;
+    }
+
     /* Persistent Status Bar */
     #status-bar-container {
         height: 1;
-        background: #0e1424;
-        color: #94a3b8;
+        background: #18181b;
+        color: #98989f;
         dock: bottom;
         padding: 0 1;
+        border-top: solid #2a2a2f;
     }
     """
 
     class ClusterTUIApp(App):
-        TITLE = "cluster // Distributed GPU Mesh"
-        SUB_TITLE = "Multi-Notebook VRAM Pooling Cockpit"
+        TITLE = "cluster"
+        SUB_TITLE = "Distributed GPU Mesh"
         CSS = TEXTUAL_CSS
         ENABLE_COMMAND_PALETTE = False
 
@@ -606,7 +646,7 @@ if HAS_TEXTUAL:
 
             self.node_data = {
                 "admin": {
-                    "title": "[◆ ADMIN] Local Control Station",
+                    "title": "Admin: Local Control Station",
                     "role": "Cluster Administrator",
                     "platform": "Local Linux Workstation (Dual-Port Architecture)",
                     "status": "Online • Authenticated",
@@ -619,67 +659,67 @@ if HAS_TEXTUAL:
                     "reconnect_cmd": f"cluster admin connect {remote_url} --token {token}",
                 },
                 "leader": {
-                    "title": "[▲ LEADER] Cloud Master Coordinator",
-                    "role": "Coordinator & Shard Manager (llama-server)",
-                    "platform": "Google Colab / Kaggle (CUDA 12.2)",
-                    "status": "Online • Active Streaming",
-                    "gpu": "2x Tesla T4 (30 GB GDDR6)",
-                    "vram_used": "8.4 GB",
-                    "vram_tot": "30.0 GB",
-                    "temp": "46°C",
+                    "title": "Leader: Cloud Master Coordinator",
+                    "role": "Coordinator & Shard Manager",
+                    "platform": "Cloud GPU Runtime",
+                    "status": "Connecting...",
+                    "gpu": "Detecting...",
+                    "vram_used": "--",
+                    "vram_tot": "--",
+                    "temp": "N/A",
                     "ping": 0,
-                    "layers": "Layers 00..16 (Token Embeddings & Input Attention)",
-                    "reconnect_cmd": f"!curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/remote/worker.sh | bash -s -- --leader {remote_url} --token {token}",
+                    "layers": "Layers 0..47 (Full Model)",
+                    "reconnect_cmd": f"!curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/worker.sh | bash -s -- --leader {remote_url} --token {token}",
                 },
                 "worker1": {
-                    "title": "[■ WORKER 1] RPC Accelerator 1",
-                    "role": "RPC Shard Accelerator (rpc-server)",
-                    "platform": "Colab / Kaggle GPU Runtime",
-                    "status": "Online • Synchronized",
-                    "gpu": "Tesla T4 (16 GB GDDR6)",
-                    "vram_used": "5.4 GB",
-                    "vram_tot": "16.0 GB",
-                    "temp": "45°C",
-                    "ping": 12,
-                    "layers": "Layers 17..32 (Self-Attention & Intermediate MLP)",
-                    "reconnect_cmd": f"!curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/remote/worker.sh | bash -s -- --leader {remote_url} --token {token} --name notebook-1",
+                    "title": "Worker 1: RPC Accelerator 1",
+                    "role": "RPC Shard Accelerator",
+                    "platform": "Cloud GPU Runtime",
+                    "status": "Awaiting Secondary Notebook...",
+                    "gpu": "Awaiting Join",
+                    "vram_used": "--",
+                    "vram_tot": "--",
+                    "temp": "N/A",
+                    "ping": 0,
+                    "layers": "Awaiting Join",
+                    "reconnect_cmd": f"!curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/worker.sh | bash -s -- --leader {remote_url} --token {token} --name notebook-1",
                 },
                 "worker2": {
-                    "title": "[■ WORKER 2] RPC Accelerator 2",
-                    "role": "RPC Shard Accelerator (rpc-server)",
-                    "platform": "Colab / Kaggle GPU Runtime",
-                    "status": "Online • Synchronized",
-                    "gpu": "Tesla T4 (16 GB GDDR6)",
-                    "vram_used": "5.2 GB",
-                    "vram_tot": "16.0 GB",
-                    "temp": "47°C",
-                    "ping": 18,
-                    "layers": "Layers 33..48 + LM Head (Probability Projection)",
-                    "reconnect_cmd": f"!curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/remote/worker.sh | bash -s -- --leader {remote_url} --token {token} --name notebook-2",
+                    "title": "Worker 2: RPC Accelerator 2",
+                    "role": "RPC Shard Accelerator",
+                    "platform": "Cloud GPU Runtime",
+                    "status": "Awaiting Secondary Notebook...",
+                    "gpu": "Awaiting Join",
+                    "vram_used": "--",
+                    "vram_tot": "--",
+                    "temp": "N/A",
+                    "ping": 0,
+                    "layers": "Awaiting Join",
+                    "reconnect_cmd": f"!curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/worker.sh | bash -s -- --leader {remote_url} --token {token} --name notebook-2",
                 },
                 "worker3": {
-                    "title": "[■ WORKER 3] RPC Accelerator 3",
-                    "role": "RPC Shard Accelerator (rpc-server)",
-                    "platform": "Colab / Kaggle GPU Runtime",
-                    "status": "Online • Synchronized",
-                    "gpu": "Tesla T4 (16 GB GDDR6)",
-                    "vram_used": "5.1 GB",
-                    "vram_tot": "16.0 GB",
-                    "temp": "44°C",
-                    "ping": 14,
-                    "layers": "Layers 49..64 (Output Decoder Shards)",
-                    "reconnect_cmd": f"!curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/remote/worker.sh | bash -s -- --leader {remote_url} --token {token} --name notebook-3",
+                    "title": "Worker 3: RPC Accelerator 3",
+                    "role": "RPC Shard Accelerator",
+                    "platform": "Cloud GPU Runtime",
+                    "status": "Awaiting Secondary Notebook...",
+                    "gpu": "Awaiting Join",
+                    "vram_used": "--",
+                    "vram_tot": "--",
+                    "temp": "N/A",
+                    "ping": 0,
+                    "layers": "Awaiting Join",
+                    "reconnect_cmd": f"!curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/worker.sh | bash -s -- --leader {remote_url} --token {token} --name notebook-3",
                 },
                 "members": {
-                    "title": "[● INGRESS] Transparent Proxy :8080",
+                    "title": "Ingress: Transparent Proxy :8080",
                     "role": "Fair-Share Request Multiplexer",
                     "platform": "Cursor IDE, Continue, Open WebUI, Python SDK",
                     "status": "Active • Fair-Share Queueing",
                     "gpu": "Routed via :8080 Ingress Proxy",
                     "vram_used": "Shared Access",
-                    "vram_tot": "64.0 GB",
+                    "vram_tot": "--",
                     "temp": "N/A",
-                    "ping": 8,
+                    "ping": 0,
                     "layers": "OpenAI Compatible: http://127.0.0.1:8080/v1",
                     "reconnect_cmd": f"cluster connect {remote_url}",
                 },
@@ -688,145 +728,109 @@ if HAS_TEXTUAL:
         def compose(self) -> ComposeResult:
             yield Header(show_clock=True)
 
-            # Top Telemetry HUD
+            # Top Telemetry Bar
             with Horizontal(id="top-bar"):
-                yield Label(" cluster // DISTRIBUTED GPU MESH ", classes="banner-title")
-                yield Label(" ● HEALTHY MESH ", classes="badge-healthy", id="badge-health")
-                yield Label(f" ◈ MODEL: {self.active_model} ", classes="badge-model", id="badge-active-model")
-                yield Label(f" ▤ VRAM: {self.pooled_vram_str} ", classes="badge-vram", id="badge-vram")
-                yield Label(f" ⛯ PROXY: 127.0.0.1:{self.proxy_port} ", classes="badge-proxy")
-                yield Label(f" ⚡ HUB: :{self.hub_port} ", classes="badge-proxy")
+                yield Label("cluster", classes="banner-title")
+                yield Label("● online", classes="badge-healthy", id="badge-health")
+                yield Label(f"model: {self.active_model}", classes="badge-model", id="badge-active-model")
+                yield Label(f"vram: {self.pooled_vram_str}", classes="badge-vram", id="badge-vram")
+                yield Label(f"proxy: 127.0.0.1:{self.proxy_port}", classes="badge-proxy")
+                yield Label(f"hub: :{self.hub_port}", classes="badge-proxy")
 
             # Main Workspace Tabs
             with TabbedContent(id="main-tabs"):
                 # Tab 1: Mesh Topology
-                with TabPane("[1] ⬡ TOPOLOGY", id="tab-mesh"):
+                with TabPane("1 Topology", id="tab-mesh"):
                     with Horizontal(id="mesh-container"):
                         with ScrollableContainer(id="dag-scroll-view"):
-                            yield Label("╭── CLUSTER MESH TOPOLOGY (Hierarchical Card DAG) ────────────────────╮", classes="dag-connector")
+                            yield Label("Cluster Topology", classes="dag-section-label")
                             yield Button(
-                                "╭──────────────────────────────────────────────────────────╮\n"
-                                "│ [◆ ADMIN] Local Control Station                          │\n"
-                                "│ Role: Cluster Lead Orchestrator • Status: ● AUTHENTICATED │\n"
-                                "╰──────────────────────────────────────────────────────────╯",
+                                "admin  •  Local Control Station\n"
+                                "Lead Orchestrator  |  Local Controller  |  Authenticated",
                                 id="btn-node-admin",
                                 classes="dag-node-btn node-admin node-full-width",
                             )
-                            yield Label("                              │\n                              ▼", classes="dag-connector")
+                            yield Label("↓  orchestrates", classes="dag-connector")
                             yield Button(
-                                "╭──────────────────────────────────────────────────────────╮\n"
-                                "│ [▲ LEADER] Cloud Master Coordinator (llama-server)       │\n"
-                                "│ GPU: 2x Tesla T4 (30GB VRAM) • Shards: L00..16 Embeddings│\n"
-                                "│ State: ● STREAMING ACTIVE • Ping: 0ms • Temp: 46°C       │\n"
-                                "╰──────────────────────────────────────────────────────────╯",
+                                "leader  •  Master Coordinator\nAwaiting Telemetry...",
                                 id="btn-node-leader",
                                 classes="dag-node-btn node-leader node-full-width",
                             )
-                            yield Label(
-                                "         ├────────────────────────┼────────────────────────┐\n"
-                                "         ▼                        ▼                        ▼",
-                                classes="dag-connector",
-                            )
+                            yield Label("↓  sharded RPC pipeline", classes="dag-connector")
                             with Horizontal(id="workers-row"):
                                 yield Button(
-                                    "╭────────────────────────╮\n"
-                                    "│ [■ WORKER 1] Colab     │\n"
-                                    "│ Tesla T4 (16GB VRAM)   │\n"
-                                    "│ Shards: L17..32        │\n"
-                                    "│ Ping: 12ms • Temp: 45°C│\n"
-                                    "│ RPC: 50052 • State: ●OK│\n"
-                                    "╰────────────────────────╯",
+                                    "notebook-1\nAwaiting Join...\n[Click for Command]",
                                     id="btn-node-worker1",
                                     classes="dag-node-btn node-worker node-worker-card",
                                 )
                                 yield Button(
-                                    "╭────────────────────────╮\n"
-                                    "│ [■ WORKER 2] Kaggle    │\n"
-                                    "│ Tesla T4 (16GB VRAM)   │\n"
-                                    "│ Shards: L33..48        │\n"
-                                    "│ Ping: 18ms • Temp: 47°C│\n"
-                                    "│ RPC: 50052 • State: ●OK│\n"
-                                    "╰────────────────────────╯",
+                                    "notebook-2\nAwaiting Join...\n[Click for Command]",
                                     id="btn-node-worker2",
                                     classes="dag-node-btn node-worker node-worker-card",
                                 )
                                 yield Button(
-                                    "╭────────────────────────╮\n"
-                                    "│ [■ WORKER 3] Colab     │\n"
-                                    "│ Tesla T4 (16GB VRAM)   │\n"
-                                    "│ Shards: L49..64 LM-Head│\n"
-                                    "│ Ping: 14ms • Temp: 44°C│\n"
-                                    "│ RPC: 50052 • State: ●OK│\n"
-                                    "╰────────────────────────╯",
+                                    "notebook-3\nAwaiting Join...\n[Click for Command]",
                                     id="btn-node-worker3",
                                     classes="dag-node-btn node-worker node-worker-card",
                                 )
-                            yield Label(
-                                "         ▲                        ▲                        ▲\n"
-                                "         ╰────────────────────────┴────────────────────────╯\n"
-                                "                                  │\n"
-                                "                                  ▲",
-                                classes="dag-connector",
-                            )
+                            yield Label("↑  routed client ingress (:8080)", classes="dag-connector")
                             yield Button(
-                                "╭──────────────────────────────────────────────────────────╮\n"
-                                "│ [● INGRESS] Transparent Proxy :8080 (Cursor / VS Code)   │\n"
-                                "│ Multiplexing 15 Client Streams • Fair-Share Concurrency  │\n"
-                                "╰──────────────────────────────────────────────────────────╯",
+                                "ingress  •  Proxy :8080 (Cursor / VS Code / SDK)\n"
+                                "15 Client Streams  |  Fair-Share Queue  |  Active",
                                 id="btn-node-members",
                                 classes="dag-node-btn node-members node-full-width",
                             )
 
                         with Vertical(id="inspector-view"):
-                            yield Label("╭─ NODE TELEMETRY INSPECTOR ───────────────╮", id="inspector-title")
+                            yield Label("Telemetry Inspector", id="inspector-title")
                             yield Static(id="inspector-content")
                             with Horizontal(id="inspector-actions"):
-                                yield Button("[c] Copy Reconnect", id="btn-act-copy", classes="action-btn", variant="primary")
-                                yield Button("[r] Ping RPC", id="btn-act-ping", classes="action-btn")
-                                yield Button("[e] Evict Node", id="btn-act-evict", classes="action-btn", variant="error")
+                                yield Button("Copy Reconnect", id="btn-act-copy", classes="action-btn")
+                                yield Button("Ping RPC", id="btn-act-ping", classes="action-btn")
+                                yield Button("Evict Node", id="btn-act-evict", classes="action-btn")
                             yield Label("", id="inspector-status-msg")
 
                 # Tab 2: Models & Deploy
-                with TabPane("[2] 📦 MODELS", id="tab-models"):
+                with TabPane("2 Models", id="tab-models"):
                     with Horizontal(id="model-search-bar"):
-                        yield Input(placeholder="Search Hugging Face & Ollama registry (e.g. qwen, deepseek, llama)...", id="model-search-input")
-                        yield Button("Search", id="model-search-btn", variant="primary")
-                        yield Button("Deploy Selected", id="model-deploy-btn", variant="success")
+                        yield Input(placeholder="Search registry (e.g. qwen, deepseek, llama)...", id="model-search-input")
+                        yield Button("Search", id="model-search-btn")
+                        yield Button("Deploy Selected", id="model-deploy-btn")
                     yield DataTable(id="models-table", cursor_type="row")
                     yield Static(
-                        "[bold cyan]Distributed Cooperative Sharding:[/bold cyan] Deploying a GGUF automatically segments weights across Leader (Embeddings) and Worker nodes (Self-Attention & MLP layers) without Python runtime overhead.",
+                        "Distributed Sharding: Deploying automatically segments weights across coordinator and worker nodes.",
                         id="model-details-panel",
                     )
 
                 # Tab 3: Chat Playground
-                with TabPane("[3] ⚡ CHAT", id="tab-chat"):
+                with TabPane("3 Chat", id="tab-chat"):
                     with Vertical(id="chat-container"):
                         yield RichLog(id="chat-log", highlight=True, markup=True)
                         with Horizontal(id="chat-input-bar"):
                             yield Input(placeholder="Send a prompt to test multi-GPU cooperative token generation...", id="chat-input")
-                            yield Button("Send", id="btn-chat-send", variant="primary")
+                            yield Button("Send", id="btn-chat-send")
                             yield Button("Clear", id="btn-chat-clear")
 
                 # Tab 4: Team & Traffic
-                with TabPane("[4] 👥 TEAM", id="tab-team"):
+                with TabPane("4 Team", id="tab-team"):
                     with Horizontal(id="team-stats-bar"):
-                        yield Static("[bold cyan]TOTAL PROXIED INGRESS[/bold cyan]\n[bold green]1,842 requests[/bold green]", classes="stat-card")
-                        yield Static("[bold cyan]ACTIVE TOKEN STREAMS[/bold cyan]\n[bold green]4 Streaming[/bold green]", classes="stat-card")
-                        yield Static("[bold cyan]FAIR-SHARE QUEUE[/bold cyan]\n[bold green]0 Depth (Optimal)[/bold green]", classes="stat-card")
-                        yield Static("[bold cyan]POOLED INFERENCE SPEED[/bold cyan]\n[bold green]48.2 tok/s[/bold green]", classes="stat-card")
+                        yield Static("[dim]Ingress Requests[/dim]\n[bold #ececee]1,842[/bold #ececee]", classes="stat-card")
+                        yield Static("[dim]Active Streams[/dim]\n[bold #ececee]4[/bold #ececee]", classes="stat-card")
+                        yield Static("[dim]Queue Depth[/dim]\n[bold #ececee]0 (optimal)[/bold #ececee]", classes="stat-card")
+                        yield Static("[dim]Pooled Speed[/dim]\n[bold #ececee]48.2 tok/s[/bold #ececee]", classes="stat-card")
                     yield DataTable(id="team-table", cursor_type="row")
 
                 # Tab 5: System Logs
-                with TabPane("[5] 📜 LOGS", id="tab-logs"):
+                with TabPane("5 Logs", id="tab-logs"):
                     yield RichLog(id="logs-log", highlight=True, markup=True)
                     with Horizontal(id="logs-control-bar"):
                         yield Button("Clear Logs", id="btn-clear-logs")
-                        yield Button("Probe Mesh Latency", id="btn-test-log", variant="default")
+                        yield Button("Probe Mesh Latency", id="btn-test-log")
 
             # Persistent Bottom Status Bar
             with Horizontal(id="status-bar-container"):
                 yield Label(
-                    f" [Model: {self.active_model}]  │  [Health: {self.cluster_health}]  │  [VRAM: {self.pooled_vram_str}]  │  [Speed: {self.token_speed:.1f} tok/s]  │  [Proxy: :8080]  │  [Hotkeys: 1-5 Tabs | c Reconnect | r Ping | q Quit] ",
+                    f" model: {self.active_model}  |  health: {self.cluster_health.lower()}  |  vram: {self.pooled_vram_str}  |  speed: {self.token_speed:.1f} tok/s  |  proxy: :{self.proxy_port}  |  1-5: tabs  c: reconnect  r: ping  q: quit ",
                     id="status-bar-text",
                 )
 
@@ -856,9 +860,9 @@ if HAS_TEXTUAL:
                 copied = copy_to_clipboard(cmd)
                 status = self.query_one("#inspector-status-msg", Label)
                 if copied:
-                    status.update(f"[bold green]✓ RECONNECT COMMAND COPIED TO CLIPBOARD[/bold green]\n{cmd}")
+                    status.update(f"[bold #4ade80]Copied reconnect command to clipboard:[/bold #4ade80]\n{cmd}")
                 else:
-                    status.update(f"[bold yellow]ONE-LINER READY TO COPY:[/bold yellow]\n{cmd}")
+                    status.update(f"[bold #ececee]Reconnect command:[/bold #ececee]\n{cmd}")
                 self._log_event(f"[RECONNECT] Generated join command for node '{self.selected_node_id}'")
 
         def action_ping_rpc(self) -> None:
@@ -866,13 +870,13 @@ if HAS_TEXTUAL:
             node = self.node_data.get(self.selected_node_id, {})
             ping = node.get("ping", 10)
             status = self.query_one("#inspector-status-msg", Label)
-            status.update(f"[bold green]✓ RPC PING OK[/bold green] Round-trip latency: {ping + 1.8:.1f} ms (CUDA RPC Socket Healthy)")
+            status.update(f"[#ececee]RPC ping OK: {ping + 1.8:.1f} ms round-trip[/#ececee]")
             self._log_event(f"[RPC] Ping {self.selected_node_id}: {ping + 1.8:.1f} ms")
 
         def action_evict_node(self) -> None:
             """Hotkey 'e' evicts or pauses node."""
             status = self.query_one("#inspector-status-msg", Label)
-            status.update(f"[bold red]▲ NODE PAUSED[/bold red] Node '{self.selected_node_id}' paused. Prompts held in queue.")
+            status.update(f"[#ef4444]Node '{self.selected_node_id}' paused. Prompts held in queue.[/#ef4444]")
             self._log_event(f"[WARN] Node '{self.selected_node_id}' temporarily evicted from active inference pool.")
 
         def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -911,7 +915,7 @@ if HAS_TEXTUAL:
                 logs_log = self.query_one("#logs-log", RichLog)
                 logs_log.clear()
             elif btn_id == "btn-test-log":
-                self._log_event("[RPC PROBE] Sent 4-way forward tensor shard activation packet (latency: 11.8ms)")
+                self._log_event("[RPC PROBE] Sent tensor shard activation packet (latency: 11.8ms)")
 
         def on_input_submitted(self, event: Input.Submitted) -> None:
             if event.input.id == "chat-input":
@@ -924,22 +928,19 @@ if HAS_TEXTUAL:
             self.selected_node_id = node_id
             data = self.node_data.get(node_id, {})
             title = self.query_one("#inspector-title", Label)
-            title.update(f"╭─ TELEMETRY: {data.get('title', node_id)} ─╮")
+            title.update(f"Telemetry: {data.get('title', node_id)}")
 
             content = self.query_one("#inspector-content", Static)
             lines = [
-                f"[bold cyan]Role:[/bold cyan] {data.get('role')}",
-                f"[bold cyan]Platform:[/bold cyan] {data.get('platform')}",
-                f"[bold cyan]Status:[/bold cyan] [bold green]{data.get('status')}[/bold green]",
-                f"[bold cyan]GPU Hardware:[/bold cyan] {data.get('gpu')}",
-                f"[bold cyan]VRAM Allocation:[/bold cyan] {data.get('vram_used')} / {data.get('vram_tot')}",
-                f"[bold cyan]Thermal / Latency:[/bold cyan] {data.get('temp')} • {data.get('ping')} ms",
-                f"[bold cyan]Transformer Shards:[/bold cyan] [bold magenta]{data.get('layers')}[/bold magenta]",
+                f"[bold #ffffff]Role:[/bold #ffffff] {data.get('role')}",
+                f"[bold #ffffff]Platform:[/bold #ffffff] {data.get('platform')}",
+                f"[bold #ffffff]Status:[/bold #ffffff] {data.get('status')}",
+                f"[bold #ffffff]GPU:[/bold #ffffff] {data.get('gpu')}",
+                f"[bold #ffffff]VRAM:[/bold #ffffff] {data.get('vram_used')} / {data.get('vram_tot')}",
+                f"[bold #ffffff]Temp / Ping:[/bold #ffffff] {data.get('temp')}  |  {data.get('ping')} ms",
+                f"[bold #ffffff]Layers:[/bold #ffffff] {data.get('layers')}",
                 "",
-                "[bold cyan]Actions for selected node:[/bold cyan]",
-                "  • [bold yellow][c][/bold yellow] Copy Reconnect command to clipboard",
-                "  • [bold yellow][r][/bold yellow] Send RPC latency ping probe",
-                "  • [bold yellow][e][/bold yellow] Evict node / hold prompts in queue",
+                "[dim]Shortcuts: [c] copy reconnect  [r] ping rpc  [e] evict node[/dim]",
             ]
             content.update("\n".join(lines))
             self.query_one("#inspector-status-msg", Label).update("")
@@ -984,17 +985,32 @@ if HAS_TEXTUAL:
                 row_data = table.get_row_at(row_idx)
                 selected_model = row_data[0]
             except Exception:
-                selected_model = "qwen2.5:32b"
+                selected_model = "qwen2.5:14b"
 
             self.active_model = selected_model
             update_config(last_model=selected_model)
 
             badge = self.query_one("#badge-active-model", Label)
-            badge.update(f" ◈ MODEL: {selected_model} ")
+            badge.update(f"model: {selected_model}")
 
             panel = self.query_one("#model-details-panel", Static)
-            panel.update(f"[bold green]✓ DEPLOY SUCCESS[/bold green] Cooperatively sharded [bold cyan]{selected_model}[/bold cyan] across Leader + Workers. Ready for incoming inference.")
-            self._log_event(f"[DEPLOY] Model '{selected_model}' sharded across cluster GPUs.")
+            panel.update(f"[bold #4ade80]Deploying '{selected_model}' across cluster mesh in background...[/bold #4ade80]")
+            self._log_event(f"[DEPLOY] Deploying model '{selected_model}' across cluster GPUs...")
+            self._deploy_model_worker(selected_model)
+
+        @work(thread=True)
+        def _deploy_model_worker(self, model_name: str) -> None:
+            client = ClusterClient()
+            success, msg = client.deploy_model(model_name)
+            def _update_ui():
+                panel = self.query_one("#model-details-panel", Static)
+                if success:
+                    panel.update(f"[bold #4ade80]Active Model:[/bold #4ade80] {model_name} sharded and ready across cluster.")
+                    self._log_event(f"[OK] Model '{model_name}' active on mesh.")
+                else:
+                    panel.update(f"[#ef4444]Deploy note: {msg}[/#ef4444]")
+                    self._log_event(f"[DEPLOY] {msg}")
+            self.app.call_from_thread(_update_ui)
 
         def _populate_team_table(self) -> None:
             table = self.query_one("#team-table", DataTable)
@@ -1002,19 +1018,19 @@ if HAS_TEXTUAL:
             table.add_columns("Client ID", "Tool / Environment", "Target Model", "Requests", "Tokens Gen", "Avg Ping", "State")
 
             team = [
-                ("dev-alex", "Cursor IDE (Tab Autocomplete)", self.active_model, "618", "124.2k", "14ms", "● STREAMING"),
-                ("dev-sarah", "VS Code Continue (Chat)", self.active_model, "412", "88.4k", "16ms", "● IDLE"),
-                ("dev-chen", "Open WebUI (Team Playground)", self.active_model, "740", "162.9k", "19ms", "● IDLE"),
-                ("dev-priya", "Cursor IDE (Composer Agent)", self.active_model, "491", "108.8k", "15ms", "● STREAMING"),
-                ("pipeline-eval", "Python Evaluation Suite", self.active_model, "265", "54.1k", "12ms", "● STREAMING"),
+                ("dev-alex", "Cursor IDE (Autocomplete)", self.active_model, "618", "124.2k", "14ms", "streaming"),
+                ("dev-sarah", "VS Code Continue (Chat)", self.active_model, "412", "88.4k", "16ms", "idle"),
+                ("dev-chen", "Open WebUI (Playground)", self.active_model, "740", "162.9k", "19ms", "idle"),
+                ("dev-priya", "Cursor IDE (Composer)", self.active_model, "491", "108.8k", "15ms", "streaming"),
+                ("pipeline-eval", "Python Eval Suite", self.active_model, "265", "54.1k", "12ms", "streaming"),
             ]
             for row in team:
                 table.add_row(*row)
 
         def _init_chat_welcome(self) -> None:
             chat_log = self.query_one("#chat-log", RichLog)
-            chat_log.write(f"[bold cyan]cluster Mesh Chat Cockpit[/bold cyan] (Active Model: [bold green]{self.active_model}[/bold green])")
-            chat_log.write("[dim]Inference requests sent here execute cooperatively across remote GPU nodes in real-time.[/dim]\n")
+            chat_log.write(f"cluster mesh chat ({self.active_model})")
+            chat_log.write("[dim]Prompts execute cooperatively across remote GPU nodes.[/dim]\n")
 
         def _send_chat_message(self) -> None:
             if self.is_streaming_chat:
@@ -1027,8 +1043,8 @@ if HAS_TEXTUAL:
 
             chat_input.value = ""
             chat_log = self.query_one("#chat-log", RichLog)
-            chat_log.write(f"\n[bold cyan]User:[/bold cyan] {user_msg}")
-            chat_log.write(f"[bold green]cluster ({self.active_model}):[/bold green] ", scroll_end=True)
+            chat_log.write(f"\n[bold #ffffff]User:[/bold #ffffff] {user_msg}")
+            chat_log.write(f"[dim]cluster ({self.active_model}):[/dim] ", scroll_end=True)
 
             self.chat_messages.append({"role": "user", "content": user_msg})
             self.is_streaming_chat = True
@@ -1052,11 +1068,11 @@ if HAS_TEXTUAL:
                 tok_per_sec = round(token_count / elapsed, 1)
                 full_content = "".join(full_reply)
                 self.chat_messages.append({"role": "assistant", "content": full_content})
-                footer_msg = f"\n[dim green]⚡ {token_count} tokens in {elapsed:.1f}s ({tok_per_sec} tok/s) • Multi-GPU Pipeline Verified[/dim green]\n"
+                footer_msg = f"\n[dim]{token_count} tokens in {elapsed:.1f}s ({tok_per_sec} tok/s)[/dim]\n"
                 self.app.call_from_thread(self._append_chat_footer, footer_msg)
                 self.app.call_from_thread(self._log_event, f"[CHAT] Inference completed: {token_count} tokens ({tok_per_sec} tok/s)")
             except Exception as e:
-                err_msg = f"\n[bold red][Inference error: {str(e)}][/bold red]\n"
+                err_msg = f"\n[#ef4444][Inference error: {str(e)}][/#ef4444]\n"
                 self.app.call_from_thread(self._append_chat_footer, err_msg)
             finally:
                 self.app.call_from_thread(self._reset_chat_state)
@@ -1075,9 +1091,9 @@ if HAS_TEXTUAL:
         def _init_logs(self) -> None:
             logs = self.query_one("#logs-log", RichLog)
             self._log_event(f"[BOOT] cluster Hub active on 127.0.0.1:{self.hub_port}")
-            self._log_event(f"[BOOT] Transparent Ingress Proxy active on 127.0.0.1:{self.proxy_port}")
+            self._log_event(f"[BOOT] Ingress Proxy active on 127.0.0.1:{self.proxy_port}")
             self._log_event(f"[MESH] Topology loaded: 1 Leader + Multi-Worker GPU Mesh")
-            self._log_event(f"[RPC] High-performance CUDA 12 RPC backend socket listeners ready")
+            self._log_event(f"[RPC] Backend socket listeners ready")
 
         def _log_event(self, msg: str) -> None:
             try:
@@ -1089,15 +1105,129 @@ if HAS_TEXTUAL:
 
         def _telemetry_tick(self) -> None:
             """Background tick polling live cluster status and updating widgets."""
-            try:
-                self.pulse_counter += 1
-                speed_jitter = round(47.5 + (self.pulse_counter % 5) * 0.8, 1)
-                self.token_speed = speed_jitter
+            self.pulse_counter += 1
+            self._fetch_telemetry_worker()
 
-                # Update bottom status bar
+        @work(thread=True)
+        def _fetch_telemetry_worker(self) -> None:
+            try:
+                client = ClusterClient()
+                c_status = client.get_cluster_status()
+                workers = client.get_workers()
+                self.app.call_from_thread(self._apply_telemetry_update, c_status, workers)
+            except Exception:
+                pass
+
+        def _apply_telemetry_update(self, c_status: Dict[str, Any], workers: List[Dict[str, Any]]) -> None:
+            try:
+                remote_url = self.cfg.get("remote_url", "https://cluster.trycloudflare.com")
+                token = self.cfg.get("auth_token", "cluster-worker-token")
+
+                if c_status:
+                    raw_status = c_status.get("status", "HEALTHY")
+                    self.cluster_health = raw_status.upper()
+                    if c_status.get("model") and c_status.get("model") != "None (Ready to deploy)":
+                        self.active_model = c_status.get("model")
+
+                    pooled_gb = c_status.get("pooled_vram_gb", 0.0)
+                    self.pooled_vram_str = f"{pooled_gb:.1f} GB"
+
+                    badge_model = self.query_one("#badge-active-model", Label)
+                    badge_model.update(f"model: {self.active_model}")
+
+                    badge_vram = self.query_one("#badge-vram", Label)
+                    badge_vram.update(f"vram: {self.pooled_vram_str}")
+
+                    badge_health = self.query_one("#badge-health", Label)
+                    if self.cluster_health in ("HEALTHY", "OK"):
+                        badge_health.update("● online")
+                    else:
+                        badge_health.update("● offline")
+
+                if workers:
+                    leader = next((w for w in workers if w.get("role") == "Leader"), None)
+                    if leader:
+                        l_gpu = leader.get("gpu", "Tesla T4")
+                        l_layers = leader.get("layers", "0..47 (Full Model)")
+                        l_status = leader.get("status", "HEALTHY")
+                        l_vram = leader.get("vram", "--")
+                        leader_btn = self.query_one("#btn-node-leader", Button)
+                        leader_btn.label = f"leader  •  Master Coordinator\n{l_gpu}  |  {l_layers}  |  {l_status}"
+
+                        self.node_data["leader"] = {
+                            "title": "Leader: Cloud Master Coordinator",
+                            "role": "Coordinator & Shard Manager",
+                            "platform": "Cloud GPU Runtime (CUDA)",
+                            "status": f"{l_status} • Active",
+                            "gpu": l_gpu,
+                            "vram_used": l_vram,
+                            "vram_tot": "--",
+                            "temp": "N/A",
+                            "ping": 0,
+                            "layers": l_layers,
+                            "reconnect_cmd": f"cluster admin connect {remote_url} --token {token}",
+                        }
+
+                    worker_nodes = [w for w in workers if w.get("role") != "Leader"]
+                    for idx in (1, 2, 3):
+                        w_btn = self.query_one(f"#btn-node-worker{idx}", Button)
+                        w_key = f"worker{idx}"
+                        if idx - 1 < len(worker_nodes):
+                            w = worker_nodes[idx - 1]
+                            w_name = w.get("name", f"notebook-{idx}")
+                            w_status = w.get("status", "HEALTHY")
+                            w_gpu = w.get("gpu", "Tesla T4")
+                            w_layers = w.get("layers", "Awaiting Join")
+                            w_ping = w.get("ping", 0)
+                            w_vram = w.get("vram", "--")
+                            w_reconnect = w.get("reconnect_cmd", f"!curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/worker.sh | bash -s -- --leader {remote_url} --token {token} --name {w_name}")
+
+                            if w_status == "HEALTHY":
+                                w_btn.label = f"{w_name}\n{w_gpu}\n{w_layers}  |  {w_ping}ms"
+                                status_desc = "Online • Synchronized"
+                            elif w_status == "WAITING_FOR_JOIN":
+                                w_btn.label = f"{w_name}  •  Awaiting Join\nClick for Command\n[Pending]"
+                                status_desc = "Waiting for Secondary Notebook to Connect"
+                            else:
+                                w_btn.label = f"{w_name}  •  Disconnected\nClick for Reconnect\n[Alert]"
+                                status_desc = "Disconnected (Heartbeat Timeout)"
+
+                            self.node_data[w_key] = {
+                                "title": f"{w_name}: RPC Shard Accelerator {idx}",
+                                "role": "RPC Shard Accelerator",
+                                "platform": "Cloud GPU Runtime",
+                                "status": status_desc,
+                                "gpu": w_gpu,
+                                "vram_used": w_vram,
+                                "vram_tot": "--",
+                                "temp": "N/A",
+                                "ping": w_ping,
+                                "layers": w_layers,
+                                "reconnect_cmd": w_reconnect,
+                            }
+                        else:
+                            w_btn.label = f"worker-{idx}  •  Unassigned\n--\n--"
+                            self.node_data[w_key] = {
+                                "title": f"Worker {idx}: Unallocated Slot",
+                                "role": "Unallocated Slot",
+                                "platform": "--",
+                                "status": "Inactive",
+                                "gpu": "None",
+                                "vram_used": "--",
+                                "vram_tot": "--",
+                                "temp": "N/A",
+                                "ping": 0,
+                                "layers": "None",
+                                "reconnect_cmd": f"!curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/worker.sh | bash -s -- --leader {remote_url} --token {token} --name notebook-{idx}",
+                            }
+
+                    # Refresh inspector for currently selected node
+                    if self.selected_node_id in self.node_data:
+                        self._update_inspector(self.selected_node_id)
+
                 status_bar = self.query_one("#status-bar-text", Label)
                 status_bar.update(
-                    f" [Model: {self.active_model}]  │  [Health: {self.cluster_health}]  │  [VRAM: {self.pooled_vram_str}]  │  [Speed: {self.token_speed:.1f} tok/s]  │  [Proxy: :{self.proxy_port}]  │  [Hotkeys: 1-5 Tabs | c Reconnect | r Ping | q Quit] "
+                    f" model: {self.active_model}  |  health: {self.cluster_health.lower()}  |  vram: {self.pooled_vram_str}  |  speed: {self.token_speed:.1f} tok/s  |  proxy: :{self.proxy_port}  |  1-5: tabs  c: reconnect  r: ping  q: quit "
                 )
             except Exception:
                 pass

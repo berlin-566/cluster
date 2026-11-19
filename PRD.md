@@ -18,7 +18,7 @@ Key targets:
 * **Dual-Port Runtime Architecture**:
   * Port 2424: Core Hub Engine, REST API, and Server-Sent Events (SSE) telemetry bus.
   * Port 8080: Transparent OpenAI-compatible API Proxy ingress; client tools (Cursor, VS Code, Open WebUI) connect to 8080, which routes through the 2424 Hub for live traffic telemetry and mesh visualization.
-* **Default TUI Launch**: Running `cluster ui` boots the 2424 Hub and 8080 Proxy in background daemon threads and launches the full Textual TUI directly in the terminal (with `--web` flag retained for optional browser dashboard fallback).
+* **Default TUI Launch**: Running `cluster ui` boots the 2424 Hub and 8080 Proxy in background daemon threads and launches the full Textual TUI directly in the terminal.
 * **Resilient Hot-Reconnection**: If a worker notebook disconnects due to Colab timeout, prompts are held in a queue while the Leader alerts the Admin with the exact command to re-paste in a fresh cell without restarting the cluster.
 
 ***
@@ -182,9 +182,8 @@ The primary view features a structured columnar DAG visualizing the cluster hier
 ### 4. CLI Reference
 
 #### Core Commands
-* `cluster ui [--port 2424] [--proxy-port 8080] [--web]`:
-  * Default: Boots Hub & Proxy in background and launches the full Textual TUI dashboard.
-  * With `--web`: Launches background Hub and opens the legacy browser dashboard at `http://localhost:2424`.
+* `cluster ui [--port 2424] [--proxy-port 8080]`:
+  * Boots Hub & Proxy in background and launches the full Textual TUI dashboard.
 * `cluster connect <url> --token <token>`: Authenticate client as team member or admin.
 * `cluster admin connect <url> --token <token>`: Authenticate as cluster administrator.
 * `cluster chat [model]`: Quick terminal chat streaming directly from command line.

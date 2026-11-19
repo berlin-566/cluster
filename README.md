@@ -1,7 +1,7 @@
 # cluster
 ## Multi-Notebook Distributed GPU Mesh
 
-Pool multiple ephemeral cloud notebooks (Google Colab, Kaggle, team GPU instances) into an orchestrated, unified multi-GPU inference cluster, accessible via both a streamlined CLI and a sleek, Cortex.io-style matte-black desktop web dashboard.
+Pool multiple ephemeral cloud notebooks (Google Colab, Kaggle, team GPU instances) into an orchestrated, unified multi-GPU inference cluster, accessible via a streamlined CLI and a sleek terminal cockpit TUI dashboard.
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/berlin-566/cluster/blob/main/notebooks/colab_cluster.ipynb)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -21,7 +21,7 @@ Pool multiple ephemeral cloud notebooks (Google Colab, Kaggle, team GPU instance
   * **Interactive Node Inspector Drawer**: Focused node telemetry with instant hotkey actions (`[c]` copy reconnect one-liner, `[r]` ping RPC latency, `[e]` evict).
   * **5-Tab Navigation**: `[1] Mesh Topology`, `[2] Models & Deploy`, `[3] Chat Playground`, `[4] Team & Traffic`, `[5] System Logs`.
   * **Cyber Matte Dark Aesthetic**: Clean Tokyo Night / Slate theme, rounded Unicode borders, and strictly zero emojis.
-* **Automatic TUI Launch**: Running `cluster ui` boots the 2424 Hub and 8080 proxy in background threads and launches the full Textual TUI directly in your terminal (use `--web` to launch the browser dashboard).
+* **Automatic TUI Launch**: Running `cluster ui` boots the 2424 Hub and 8080 proxy in background threads and launches the full Textual TUI directly in your terminal.
 * **Dual-Mode Persona Experience**:
   * **Admin Mode**: Full cluster management, model deployment, layer sharding orchestration, worker eviction, and diagnostic logs.
   * **User / Member Mode**: Built-in interactive streaming chat playground, local proxy status (`http://127.0.0.1:8080`), and live generation speed scoreboard.
@@ -56,7 +56,7 @@ flowchart TD
 
     subgraph LocalMachine["Local Machine (Desktop / Laptop)"]
         direction TB
-        HUB["Port 2424: cluster Core Hub Engine<br/>Matte-Black Web Dashboard<br/>Live Mesh Topology Graph<br/>SSE Telemetry Bus"]
+        HUB["Port 2424: cluster Core Hub Engine<br/>Telemetry & SSE Stream<br/>REST Management API"]
         PROXY["Port 8080: Transparent API Ingress<br/>Live Pulse Beam Telemetry<br/>Bearer Token Injection"]
         CLI["cluster CLI Suite<br/>cluster fetch | cluster ui<br/>cluster cluster workers"]
         CLIENTS["External Applications<br/>Cursor IDE / VS Code Continue<br/>Open WebUI / Python SDK"]
@@ -122,7 +122,7 @@ The Leader notebook will initialize and display the complete control board:
    cluster admin connect <leader-tunnel-url> --token <admin-token>
    cluster ui
    ```
-   Launches the rich Textual TUI dashboard directly in your terminal (with `--web` flag to open the browser dashboard at `http://localhost:2424`).
+   Launches the rich Textual TUI dashboard directly in your terminal.
 3. **Team Member Command**: Share with team members for inference access:
    ```bash
    cluster connect <leader-tunnel-url> --token <member-token>
@@ -148,8 +148,8 @@ cluster cluster status
 # List worker node states and reconnect commands
 cluster cluster workers
 
-# Launch local Hub and open the Textual TUI dashboard (or browser with --web)
-cluster ui [--port 2424] [--proxy-port 8080] [--web]
+# Launch local Hub and open the Textual TUI dashboard
+cluster ui [--port 2424] [--proxy-port 8080]
 ```
 
 ### Team Member Commands

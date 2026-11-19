@@ -19,7 +19,10 @@ def get_config_dir() -> Path:
             path = old_path
         else:
             path = new_path
-    path.mkdir(parents=True, exist_ok=True)
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
     return path
 
 def get_config_path() -> Path:
@@ -61,8 +64,12 @@ def load_config() -> Dict[str, Any]:
 
 def save_config(config: Dict[str, Any]) -> None:
     path = get_config_path()
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=2)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2)
+    except OSError:
+        pass
 
 def update_config(**kwargs: Any) -> Dict[str, Any]:
     cfg = load_config()

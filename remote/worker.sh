@@ -74,7 +74,7 @@ EOF
 
 JOINED=0
 for i in {1..15}; do
-    JOIN_RESP=$(curl -s -X POST "$LEADER_URL/_cluster/worker/join" \
+    JOIN_RESP=$(curl -s --connect-timeout 5 --max-time 10 -X POST "$LEADER_URL/_cluster/worker/join" \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer $TOKEN" \
         -d "$JOIN_PAYLOAD" 2>/dev/null || true)
@@ -100,7 +100,7 @@ trap "echo '[STOP] Worker stopping...'; exit 0" SIGINT SIGTERM
 
 FAIL_COUNT=0
 while true; do
-    HB_RESP=$(curl -s -X POST "$LEADER_URL/_cluster/worker/heartbeat" \
+    HB_RESP=$(curl -s --connect-timeout 4 --max-time 6 -X POST "$LEADER_URL/_cluster/worker/heartbeat" \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer $TOKEN" \
         -d "{\"name\": \"$WORKER_NAME\", \"gpu_name\": \"$GPU_NAME\", \"vram_total_mb\": $VRAM_MB}" 2>/dev/null || true)

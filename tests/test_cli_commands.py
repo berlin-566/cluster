@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 from click.testing import CliRunner
 
 from cluster.cli import main
@@ -35,12 +36,17 @@ class TestCliCommands(unittest.TestCase):
         self.assertIn("cluster Distributed GPU Mesh Status", result.output)
         self.assertIn("Pooled VRAM", result.output)
 
-    def test_cluster_workers(self):
+    @patch("cluster.client.ClusterClient.get_workers")
+    def test_cluster_workers(self, mock_get_workers):
+        mock_get_workers.return_value = [
+            {"name": "leader", "role": "Leader", "gpu": "Tesla T4", "vram": "2.0 / 16.0 GB", "layers": "0..23", "status": "HEALTHY", "ping": 0},
+            {"name": "notebook-1", "role": "Worker", "gpu": "Tesla T4", "vram": "5.2 / 16.0 GB", "layers": "24..47", "status": "HEALTHY", "ping": 14},
+        ]
         result = self.runner.invoke(main, ["cluster", "workers"])
         self.assertEqual(result.exit_code, 0)
-        self.assertIn("leader (Colab)", result.output)
+        self.assertIn("leader", result.output)
         self.assertIn("notebook-1", result.output)
-        self.assertIn("Worker Reconnect Command", result.output)
+        self.assertIn("Worker Join / Reconnect Command", result.output)
 
     def test_notebook_colab(self):
         result = self.runner.invoke(main, ["notebook", "colab"])

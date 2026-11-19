@@ -16,8 +16,6 @@ from cluster.fetch import search_models
 
 logger = logging.getLogger("cluster.hub")
 
-WEB_DIR = Path(__file__).parent / "web"
-
 class ThreadedHubServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
     allow_reuse_address = True
@@ -62,21 +60,10 @@ class HubRequestHandler(BaseHTTPRequestHandler):
         path = parsed.path
         qs = urllib.parse.parse_qs(parsed.query)
 
-        # 1. Static Web Dashboard Files
-        if path in ("/", "/index.html", "/ui"):
-            index_path = WEB_DIR / "index.html"
-            if index_path.exists():
-                with open(index_path, "rb") as f:
-                    content = f.read()
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
-                self.send_header("Content-Length", str(len(content)))
-                self.end_headers()
-                self.wfile.write(content)
-                return
-            else:
-                self._send_json(404, {"error": "Dashboard template not found"})
-                return
+        # 1. Health / Root Endpoint
+        if path in ("/", "/health", "/status"):
+            self._send_json(200, {"status": "ok", "service": "cluster Hub API"})
+            return
 
         # 2. Cluster Telemetry & Health Status
         if path == "/api/cluster/status":
@@ -99,27 +86,18 @@ class HubRequestHandler(BaseHTTPRequestHandler):
                     live_workers = client.get_workers()
                     if live_workers:
                         for w in live_workers:
+                            w_status = w.get("status", "HEALTHY")
                             nodes.append({
                                 "name": w.get("name", "node"),
                                 "role": w.get("role", "Worker"),
                                 "gpu": w.get("gpu", "Tesla T4"),
-                                "vramTot": 16.0,
-                                "vramUsed": 5.2,
-                                "temp": 46,
-                                "ping": w.get("ping", 12),
-                                "status": "healthy" if w.get("status") in ("HEALTHY", "joined") else "degraded",
+                                "vram": w.get("vram", "--"),
+                                "ping": w.get("ping", 0),
+                                "status": "healthy" if w_status == "HEALTHY" else ("waiting" if w_status == "WAITING_FOR_JOIN" else "disconnected"),
                                 "layers": w.get("layers", "sharded"),
                             })
                 except Exception:
                     pass
-
-            if not nodes:
-                nodes = [
-                    {"name": "leader (Colab)", "role": "Leader", "gpu": "Tesla T4", "vramTot": 16.0, "vramUsed": 6.4, "temp": 48, "ping": 0, "status": "healthy", "layers": "0..12 (Embeddings)"},
-                    {"name": "notebook-1 (Colab)", "role": "Worker", "gpu": "Tesla T4", "vramTot": 16.0, "vramUsed": 5.2, "temp": 46, "ping": 12, "status": "healthy", "layers": "13..24"},
-                    {"name": "notebook-2 (Kaggle)", "role": "Worker", "gpu": "Tesla T4", "vramTot": 16.0, "vramUsed": 5.1, "temp": 47, "ping": 18, "status": "healthy", "layers": "25..36"},
-                    {"name": "notebook-3 (Colab)", "role": "Worker", "gpu": "Tesla T4", "vramTot": 16.0, "vramUsed": 5.1, "temp": 45, "ping": 14, "status": "healthy", "layers": "37..48 (LM Head)"}
-                ]
 
             data = {
                 "health": health_status,
@@ -211,33 +189,37 @@ class HubRequestHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
             try:
-                data = json.loads(body.decode("utf-8"))
+                data = json.loads(body.decode("utf-8")) if body else {}
                 messages = data.get("messages", [])
                 user_prompt = messages[-1].get("content", "") if messages else "Hello"
                 
-                # Stream simulation / cooperative generation
-                chunks = [
-                    f"Hello! I am running on the cluster multi-GPU mesh.\n\n",
-                    f"Your prompt: \"{user_prompt}\"\n\n",
-                    f"Processed cooperatively across 4 GPUs (64GB pooled VRAM):\n",
-                    f"  * Leader: Input embeddings + Layers 0..12\n",
-                    f"  * notebook-1: Transformer layers 13..24\n",
-                    f"  * notebook-2: Transformer layers 25..36\n",
-                    f"  * notebook-3: Transformer layers 37..48 + LM Head\n\n",
-                    f"Cooperative token generation complete with zero Python overhead."
-                ]
-
-                for chunk in chunks:
-                    chunk_bytes = chunk.encode("utf-8")
-                    hex_len = f"{len(chunk_bytes):X}\r\n".encode("latin-1")
-                    self.wfile.write(hex_len + chunk_bytes + b"\r\n")
+                cfg = load_config()
+                model_name = cfg.get("last_model") or "qwen2.5:14b"
+                if cfg.get("remote_url"):
+                    from cluster.client import ClusterClient
+                    client = ClusterClient()
+                    for token in client.chat_stream(model_name, messages):
+                        chunk_bytes = token.encode("utf-8")
+                        hex_len = f"{len(chunk_bytes):X}\r\n".encode("latin-1")
+                        self.wfile.write(hex_len + chunk_bytes + b"\r\n")
+                        self.wfile.flush()
+                else:
+                    msg = "cluster client not connected to remote runner. Run: cluster connect <url>\n".encode("utf-8")
+                    hex_len = f"{len(msg):X}\r\n".encode("latin-1")
+                    self.wfile.write(hex_len + msg + b"\r\n")
                     self.wfile.flush()
-                    time.sleep(0.08)
 
                 self.wfile.write(b"0\r\n\r\n")
                 self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError):
                 return
+            except Exception as e:
+                err = f"[ERROR] Stream error: {e}\n".encode("utf-8")
+                try:
+                    self.wfile.write(f"{len(err):X}\r\n".encode("latin-1") + err + b"\r\n0\r\n\r\n")
+                    self.wfile.flush()
+                except Exception:
+                    pass
             return
 
         self._send_json(404, {"error": "Not found"})
