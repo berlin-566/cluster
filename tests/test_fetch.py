@@ -1,5 +1,5 @@
 import unittest
-from cluster.fetch import search_models, calculate_vram_fit, format_search_table
+from cluster.fetch import search_models, calculate_vram_fit, format_search_table, is_model_available, LM_STUDIO_CATALOG, OLLAMA_CATALOG, HF_CATALOG
 
 class TestFetch(unittest.TestCase):
     def test_search_models_qwen(self):
@@ -14,6 +14,34 @@ class TestFetch(unittest.TestCase):
     def test_search_models_empty_query(self):
         results = search_models("", pooled_vram_gb=32.0)
         self.assertGreater(len(results), 0)
+        # Check providers include Ollama, LM Studio, Hugging Face
+        providers = {r["provider"] for r in results}
+        self.assertIn("Ollama", providers)
+        self.assertIn("LM Studio", providers)
+        self.assertIn("Hugging Face", providers)
+
+    def test_search_models_lm_studio(self):
+        results = search_models("lm studio", pooled_vram_gb=64.0)
+        self.assertGreater(len(results), 0)
+        for r in results:
+            self.assertEqual(r["provider"], "LM Studio")
+            self.assertTrue(r["pull_id"].startswith("hf.co/"))
+
+    def test_is_model_available(self):
+        # Local model names without slash always return True
+        self.assertTrue(is_model_available("llama3.1:8b"))
+        self.assertTrue(is_model_available("qwen2.5:14b"))
+
+    def test_all_catalog_models_have_pull_id_and_provider(self):
+        for item in LM_STUDIO_CATALOG:
+            self.assertEqual(item["provider"], "LM Studio")
+            self.assertTrue(item["pull_id"].startswith("hf.co/"))
+        for item in OLLAMA_CATALOG:
+            self.assertEqual(item["provider"], "Ollama")
+            self.assertIn("pull_id", item)
+        for item in HF_CATALOG:
+            self.assertIn(item["provider"], ("Hugging Face", "HuggingChat / HF"))
+            self.assertTrue(item["pull_id"].startswith("hf.co/"))
 
     def test_calculate_vram_fit(self):
         # 10 GB required on 64 GB pooled -> FIT

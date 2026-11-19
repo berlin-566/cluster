@@ -200,14 +200,21 @@ def fetch(query: str) -> None:
             if 1 <= idx <= len(results[:12]):
                 chosen = results[idx - 1]
                 model_name = chosen["name"]
-                click.echo(f"\n[DEPLOY] Sharding and deploying '{model_name}' across multi-GPU mesh...")
-                ok, msg = client.deploy_model(model_name)
+                pull_id = chosen.get("pull_id") or model_name
+                provider = chosen.get("provider", "Registry")
+                click.echo(f"\n[DEPLOY] Sharding and deploying '{model_name}' ({provider}) across multi-GPU mesh...")
+                ok, msg = client.deploy_model(pull_id)
                 if ok:
                     update_config(last_model=model_name)
                     click.secho(f"[OK] Successfully deployed '{model_name}' on cluster!", fg="green", bold=True)
                     click.echo("You can now run 'cluster chat' or connect Cursor to http://127.0.0.1:8080")
                 else:
-                    click.secho(f"[ERROR] Deployment failed: {msg}", fg="red")
+                    if not client.remote_url:
+                        update_config(last_model=model_name)
+                        click.secho(f"[SAVED] Selected model '{model_name}'.", fg="yellow")
+                        click.echo("[NOTE] No remote cluster connected. Run 'cluster connect <url>' to start multi-GPU inference.")
+                    else:
+                        click.secho(f"[ERROR] Deployment note: {msg}", fg="red")
             else:
                 click.secho("Invalid selection index.", fg="red")
         except ValueError:
@@ -216,11 +223,18 @@ def fetch(query: str) -> None:
         # Scripted/Non-interactive: deploy first result
         chosen = results[0]
         model_name = chosen["name"]
+        pull_id = chosen.get("pull_id") or model_name
         click.echo(f"[DEPLOY] Non-interactive mode: selecting top result '{model_name}'...")
-        ok, msg = client.deploy_model(model_name)
+        ok, msg = client.deploy_model(pull_id)
         if ok:
             update_config(last_model=model_name)
             click.secho(f"[OK] Deployed '{model_name}'!", fg="green")
+        else:
+            if not client.remote_url:
+                update_config(last_model=model_name)
+                click.secho(f"[SAVED] Selected model '{model_name}'.", fg="yellow")
+            else:
+                click.secho(f"[ERROR] Deployment note: {msg}", fg="red")
 
 # =============================================================
 # Cluster Group (cluster cluster status, cluster cluster workers)

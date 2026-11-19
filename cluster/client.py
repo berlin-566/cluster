@@ -219,6 +219,9 @@ class ClusterClient:
 
     def deploy_model(self, model_name: str, options: Optional[Dict[str, Any]] = None) -> Tuple[bool, str]:
         """Deploy model to the cluster Leader with cooperative sharding."""
+        if not self.remote_url:
+            return False, "No remote cluster connected. Run 'cluster connect <url>' first."
+
         url = f"{self.remote_url}/_cluster/deploy"
         headers = self._get_headers()
         payload: Dict[str, Any] = {"model": model_name}
@@ -232,13 +235,28 @@ class ClusterClient:
                     resp = client.post(url, headers=headers, content=body)
                     if resp.status_code == 200:
                         return True, resp.json().get("message", "Model deployed successfully.")
+                    elif resp.status_code == 401:
+                        return False, "Authentication failed (401): Please check your token."
+                    elif resp.status_code == 403:
+                        return False, "Forbidden (403): Admin or authorized token required to deploy."
+                    elif resp.status_code == 404:
+                        # Fallback to standard pull if custom cluster deploy endpoint is not active
+                        return self.pull_model(model_name)
                     return False, resp.text
             else:
                 req = urllib.request.Request(url, data=body, headers=headers, method="POST")
                 with self._open_url(req, timeout=60.0) as resp:
                     data = json.loads(resp.read().decode("utf-8"))
                     return True, data.get("message", "Model deployed.")
-        except Exception as e:
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                return False, "Authentication failed (401): Please check your token."
+            elif e.code == 403:
+                return False, "Forbidden (403): Admin or authorized token required to deploy."
+            elif e.code == 404:
+                return self.pull_model(model_name)
+            return False, f"HTTP {e.code}: {e.reason}"
+        except Exception:
             # Fallback to standard pull if custom deploy endpoint is not active
             return self.pull_model(model_name)
 

@@ -34,6 +34,32 @@ class TestTUI(unittest.TestCase):
         res = copy_to_clipboard("test-command")
         self.assertIsInstance(res, bool)
 
+    def test_minimal_btop_css_rules(self):
+        from cluster.tui import TEXTUAL_CSS
+        # Verify clicking tab does not hide tab name (color #38bdf8 !important)
+        self.assertIn("Tab.-active", TEXTUAL_CSS)
+        self.assertIn("color: #38bdf8 !important", TEXTUAL_CSS)
+
+        # Verify search bar and button widths are reduced and minimal
+        self.assertIn("#model-search-input", TEXTUAL_CSS)
+        self.assertIn("width: 38", TEXTUAL_CSS)
+        self.assertIn("#model-search-btn", TEXTUAL_CSS)
+        self.assertIn("width: 12", TEXTUAL_CSS)
+        self.assertIn("#model-deploy-btn", TEXTUAL_CSS)
+        self.assertIn("width: 18", TEXTUAL_CSS)
+
+        # Verify deployed models box height is clean btop box
+        self.assertIn("#model-details-panel", TEXTUAL_CSS)
+        self.assertIn("height: 3", TEXTUAL_CSS)
+
+        # Verify sidebar in topology is reduced in width to 30%
+        self.assertIn("#inspector-view", TEXTUAL_CSS)
+        self.assertIn("width: 30%", TEXTUAL_CSS)
+
+        # Verify chat input dynamically fits width without overflowing
+        self.assertIn("#chat-input", TEXTUAL_CSS)
+        self.assertIn("width: 1fr", TEXTUAL_CSS)
+
     def test_textual_app_lifecycle_and_tabs(self):
         if not HAS_TEXTUAL:
             self.skipTest("Textual is not installed")

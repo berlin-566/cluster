@@ -235,25 +235,15 @@ def copy_to_clipboard(text: str) -> bool:
         pass
     return False
 
-if HAS_TEXTUAL:
-
-    TEXTUAL_CSS = """
+TEXTUAL_CSS = """
     Screen {
-        background: #1f1f23;
-        color: #ececee;
-    }
-
-    Header {
-        background: #18181b;
-        color: #ececee;
-        dock: top;
-        height: 1;
-        text-style: none;
+        background: #0f1017;
+        color: #e2e8f0;
     }
 
     Footer {
-        background: #18181b;
-        color: #98989f;
+        background: #12131c;
+        color: #64748b;
         dock: bottom;
         height: 1;
     }
@@ -263,79 +253,94 @@ if HAS_TEXTUAL:
     }
 
     Tabs {
-        background: #18181b;
-        border-bottom: solid #2a2a2f;
+        background: #12131c;
+        border-bottom: solid #2a2d3d;
         height: 3;
     }
 
     Tab {
         padding: 0 2;
-        color: #98989f;
+        color: #64748b !important;
+        background: transparent;
         text-style: none;
     }
 
     Tab:hover {
-        color: #ececee;
-        background: #26262a;
+        color: #e2e8f0 !important;
+        background: #1e202e;
+    }
+
+    Tab:focus {
+        color: #38bdf8 !important;
+        background: #1e202e !important;
+        text-style: bold;
     }
 
     Tab.-active {
-        color: #ffffff;
-        background: #242428;
-        border-bottom: tall #ececee;
+        color: #38bdf8 !important;
+        background: #1e202e !important;
         text-style: bold;
+    }
+
+    Tab.-active:focus {
+        color: #38bdf8 !important;
+        background: #1e202e !important;
+        text-style: bold;
+    }
+
+    Tab.-active:hover {
+        color: #38bdf8 !important;
+        background: #1e202e !important;
     }
 
     TabPane {
         padding: 1 1;
-        background: #1f1f23;
+        background: #0f1017;
     }
 
     /* Top Telemetry Bar */
     #top-bar {
         height: 3;
-        background: #18181b;
-        border-bottom: solid #2a2a2f;
+        background: #12131c;
+        border-bottom: solid #2a2d3d;
         padding: 0 1;
         align-vertical: middle;
     }
 
-    .banner-title {
-        color: #ffffff;
-        text-style: bold;
-        padding-right: 2;
-    }
-
     .badge-healthy {
-        background: #26262a;
+        background: #171822;
         color: #4ade80;
-        border: solid #333338;
+        border: round #4ade80;
         padding: 0 1;
         margin-right: 1;
+        height: 3;
     }
 
     .badge-model {
-        background: #26262a;
-        color: #ececee;
-        border: solid #333338;
+        background: #171822;
+        color: #38bdf8;
+        border: round #2a2d3d;
         padding: 0 1;
         margin-right: 1;
+        height: 3;
     }
 
     .badge-vram {
-        background: #26262a;
-        color: #ececee;
-        border: solid #333338;
+        background: #171822;
+        color: #c084fc;
+        border: round #2a2d3d;
         padding: 0 1;
         margin-right: 1;
+        height: 3;
     }
 
     .badge-proxy {
-        background: #26262a;
-        color: #98989f;
-        border: solid #333338;
+        background: #171822;
+        color: #94a3b8;
+        border: round #2a2d3d;
         padding: 0 1;
         margin-right: 1;
+        height: 3;
     }
 
     /* Mesh Topology Layout */
@@ -344,33 +349,33 @@ if HAS_TEXTUAL:
     }
 
     #dag-scroll-view {
-        width: 58%;
+        width: 70%;
         height: 100%;
-        padding: 1 2;
-        background: #1f1f23;
-        border-right: solid #2a2a2f;
+        padding: 0 1;
+        background: #0f1017;
+        border-right: solid #2a2d3d;
     }
 
     .dag-section-label {
-        color: #98989f;
+        color: #64748b;
         margin-bottom: 1;
         text-style: bold;
     }
 
     #inspector-view {
-        width: 42%;
+        width: 30%;
         height: 100%;
-        padding: 1 2;
-        background: #18181b;
-        border-left: solid #2a2a2f;
+        padding: 0 1;
+        background: #141520;
+        border-left: solid #2a2d3d;
     }
 
     .dag-node-btn {
         margin: 0 0 1 0;
-        border: round #333338;
-        background: #26262a;
-        height: auto;
-        color: #ececee;
+        padding: 0 1;
+        border: round #2a2d3d;
+        background: #171822;
+        color: #e2e8f0;
         text-align: left;
     }
 
@@ -392,33 +397,33 @@ if HAS_TEXTUAL:
     }
 
     .dag-node-btn:hover {
-        background: #2e2e33;
-        border: round #52525b;
+        background: #1e202e;
+        border: round #38bdf8;
     }
 
     .dag-node-btn:focus {
-        background: #2e2e33;
-        border: round #ececee;
+        background: #1e202e;
+        border: round #38bdf8;
     }
 
     .node-admin {
-        border: round #3a3a42;
+        border: round #2a2d3d;
     }
 
     .node-leader {
-        border: round #3a3a42;
+        border: round #2a2d3d;
     }
 
     .node-worker {
-        border: round #333338;
+        border: round #2a2d3d;
     }
 
     .node-members {
-        border: round #3a3a42;
+        border: round #2a2d3d;
     }
 
     .dag-connector {
-        color: #6e6e76;
+        color: #475569;
         text-align: center;
         height: 1;
         margin-bottom: 1;
@@ -428,14 +433,14 @@ if HAS_TEXTUAL:
     #inspector-title {
         color: #ffffff;
         text-style: bold;
-        border-bottom: solid #2a2a2f;
-        padding-bottom: 1;
+        border-bottom: solid #2a2d3d;
+        padding-bottom: 0;
         margin-bottom: 1;
     }
 
     #inspector-content {
         height: 1fr;
-        color: #ececee;
+        color: #e2e8f0;
     }
 
     #inspector-actions {
@@ -445,14 +450,17 @@ if HAS_TEXTUAL:
     }
 
     .action-btn {
+        height: 3;
+        min-width: 10;
         margin-right: 1;
-        background: #26262a;
-        border: solid #333338;
-        color: #ececee;
+        background: #1e202e;
+        border: round #2a2d3d;
+        color: #e2e8f0;
     }
 
     .action-btn:hover {
-        background: #333338;
+        background: #2a2d3d;
+        border: round #38bdf8;
     }
 
     #inspector-status-msg {
@@ -465,44 +473,50 @@ if HAS_TEXTUAL:
     #model-search-bar {
         height: 3;
         margin-bottom: 1;
+        align-vertical: middle;
     }
 
     #model-search-input {
-        width: 70%;
-        background: #26262a;
-        border: solid #333338;
-        color: #ececee;
+        width: 38;
+        height: 3;
+        background: #171822;
+        border: round #2a2d3d;
+        color: #e2e8f0;
     }
 
     #model-search-btn {
-        width: 15%;
+        width: 12;
+        height: 3;
         margin-left: 1;
-        background: #26262a;
-        border: solid #333338;
-        color: #ececee;
+        background: #1e202e;
+        border: round #2a2d3d;
+        color: #e2e8f0;
     }
 
     #model-deploy-btn {
-        width: 15%;
+        width: 18;
+        height: 3;
         margin-left: 1;
-        background: #26262a;
-        border: solid #333338;
-        color: #ececee;
+        background: #1e202e;
+        border: round #4ade80;
+        color: #4ade80;
+        text-style: bold;
     }
 
     #models-table {
         height: 1fr;
-        border: solid #2a2a2f;
-        background: #18181b;
-        color: #ececee;
+        border: solid #2a2d3d;
+        background: #0f1017;
+        color: #e2e8f0;
     }
 
     #model-details-panel {
         height: 3;
-        border-top: solid #2a2a2f;
-        padding: 1;
-        color: #98989f;
-        background: #18181b;
+        border: solid #2a2d3d;
+        padding: 0 1;
+        margin-top: 1;
+        color: #64748b;
+        background: #141520;
     }
 
     /* Chat Tab */
@@ -512,70 +526,75 @@ if HAS_TEXTUAL:
 
     #chat-log {
         height: 1fr;
-        background: #18181b;
-        border: solid #2a2a2f;
+        background: #0f1017;
+        border: solid #2a2d3d;
         padding: 1;
-        color: #ececee;
+        color: #e2e8f0;
     }
 
     #chat-input-bar {
         height: 3;
         margin-top: 1;
+        align-vertical: middle;
     }
 
     #chat-input {
-        width: 80%;
-        background: #26262a;
-        border: solid #333338;
-        color: #ececee;
+        width: 1fr;
+        height: 3;
+        background: #171822;
+        border: round #2a2d3d;
+        color: #e2e8f0;
     }
 
     #btn-chat-send {
-        width: 10%;
+        width: 10;
+        height: 3;
         margin-left: 1;
-        background: #26262a;
-        border: solid #333338;
-        color: #ececee;
+        background: #1e202e;
+        border: round #4ade80;
+        color: #4ade80;
+        text-style: bold;
     }
 
     #btn-chat-clear {
-        width: 10%;
+        width: 10;
+        height: 3;
         margin-left: 1;
-        background: #26262a;
-        border: solid #333338;
-        color: #98989f;
+        background: #1e202e;
+        border: round #2a2d3d;
+        color: #64748b;
     }
 
     /* Team & Traffic Tab */
     #team-stats-bar {
-        height: 4;
+        height: 3;
         margin-bottom: 1;
     }
 
     .stat-card {
         width: 1fr;
         height: 100%;
-        background: #26262a;
-        border: solid #333338;
+        background: #141520;
+        border: round #2a2d3d;
         padding: 0 1;
         margin-right: 1;
-        color: #ececee;
+        color: #e2e8f0;
     }
 
     #team-table {
         height: 1fr;
-        border: solid #2a2a2f;
-        background: #18181b;
-        color: #ececee;
+        border: solid #2a2d3d;
+        background: #0f1017;
+        color: #e2e8f0;
     }
 
     /* System Logs Tab */
     #logs-log {
         height: 1fr;
-        border: solid #2a2a2f;
-        background: #18181b;
+        border: solid #2a2d3d;
+        background: #0f1017;
         padding: 1;
-        color: #ececee;
+        color: #e2e8f0;
     }
 
     #logs-control-bar {
@@ -584,23 +603,25 @@ if HAS_TEXTUAL:
     }
 
     #btn-clear-logs, #btn-test-log {
-        background: #26262a;
-        border: solid #333338;
-        color: #ececee;
+        height: 3;
+        min-width: 14;
+        background: #1e202e;
+        border: round #2a2d3d;
+        color: #e2e8f0;
         margin-right: 1;
     }
 
     /* Persistent Status Bar */
     #status-bar-container {
         height: 1;
-        background: #18181b;
-        color: #98989f;
+        background: #12131c;
+        color: #64748b;
         dock: bottom;
         padding: 0 1;
-        border-top: solid #2a2a2f;
     }
     """
 
+if HAS_TEXTUAL:
     class ClusterTUIApp(App):
         TITLE = "cluster"
         SUB_TITLE = "Distributed GPU Mesh"
@@ -726,12 +747,9 @@ if HAS_TEXTUAL:
             }
 
         def compose(self) -> ComposeResult:
-            yield Header(show_clock=True)
-
-            # Top Telemetry Bar
+            # Top Telemetry Bar (Minimal btop-style, no dot, no cluster in top left)
             with Horizontal(id="top-bar"):
-                yield Label("cluster", classes="banner-title")
-                yield Label("● online", classes="badge-healthy", id="badge-health")
+                yield Label("online", classes="badge-healthy", id="badge-health")
                 yield Label(f"model: {self.active_model}", classes="badge-model", id="badge-active-model")
                 yield Label(f"vram: {self.pooled_vram_str}", classes="badge-vram", id="badge-vram")
                 yield Label(f"proxy: 127.0.0.1:{self.proxy_port}", classes="badge-proxy")
@@ -948,15 +966,15 @@ if HAS_TEXTUAL:
         def _populate_models_table(self) -> None:
             table = self.query_one("#models-table", DataTable)
             table.clear(columns=True)
-            table.add_columns("Model Identifier", "Publisher", "Quantization", "Weight Size", "Pooled VRAM Fit", "Status")
+            table.add_columns("Model Identifier", "Provider", "Quantization", "Weight Size", "Pooled VRAM Fit", "Status")
 
             default_models = [
-                ("qwen2.5:14b", "Alibaba Qwen", "Q4_K_M", "8.9 GB", "FITS (21.8 / 64GB)", "[ACTIVE MODEL]"),
-                ("deepseek-r1:14b", "DeepSeek", "Q4_K_M", "9.0 GB", "FITS (22.1 / 64GB)", "Ready to Deploy"),
-                ("llama3.1:8b", "Meta AI", "Q4_K_M", "4.9 GB", "FITS (14.2 / 64GB)", "Ready to Deploy"),
-                ("qwen2.5:32b", "Alibaba Qwen", "Q4_K_M", "19.8 GB", "FITS (44.5 / 64GB)", "Ready to Deploy"),
-                ("bartowski/Qwen2.5-Coder-32B-GGUF", "bartowski (HF)", "Q5_K_M", "22.4 GB", "FITS (49.6 / 64GB)", "Ready to Deploy"),
-                ("deepseek-r1:70b", "DeepSeek", "Q4_K_M", "43.2 GB", "FITS (58.4 / 64GB)", "Ready to Deploy"),
+                ("qwen2.5:14b", "Ollama", "Q4_K_M", "9.0 GB", "FITS (21.8 / 64GB)", "[ACTIVE MODEL]"),
+                ("lmstudio-community/Meta-Llama-3.1-8B-Instruct-GGUF", "LM Studio", "Q4_K_M", "4.9 GB", "FITS (14.2 / 64GB)", "Ready to Deploy"),
+                ("bartowski/DeepSeek-R1-Distill-Qwen-14B-GGUF", "Hugging Face", "Q4_K_M", "9.0 GB", "FITS (22.1 / 64GB)", "Ready to Deploy"),
+                ("lmstudio-community/Qwen2.5-Coder-32B-Instruct-GGUF", "LM Studio", "Q4_K_M", "19.8 GB", "FITS (44.5 / 64GB)", "Ready to Deploy"),
+                ("deepseek-r1:14b", "Ollama", "Q4_K_M", "9.0 GB", "FITS (22.1 / 64GB)", "Ready to Deploy"),
+                ("Qwen/Qwen2.5-7B-Instruct-GGUF", "HuggingChat / HF", "Q4_K_M", "4.7 GB", "FITS (12.5 / 64GB)", "Ready to Deploy"),
             ]
             for row in default_models:
                 table.add_row(*row)
@@ -972,11 +990,11 @@ if HAS_TEXTUAL:
 
             for r in results:
                 name = r.get("name", "unknown")
-                pub = r.get("publisher", "community")
+                provider = r.get("provider", "Registry")
                 quant = r.get("quant", "Q4_K_M")
                 size = f"{r.get('size_gb', 0):.1f} GB"
                 status = "[ACTIVE MODEL]" if name == self.active_model else "Ready to Deploy"
-                table.add_row(name, pub, quant, size, "FITS (64GB Mesh)", status)
+                table.add_row(name, provider, quant, size, "FITS (64GB Mesh)", status)
 
         def _deploy_selected_model(self) -> None:
             table = self.query_one("#models-table", DataTable)
@@ -1140,9 +1158,9 @@ if HAS_TEXTUAL:
 
                     badge_health = self.query_one("#badge-health", Label)
                     if self.cluster_health in ("HEALTHY", "OK"):
-                        badge_health.update("● online")
+                        badge_health.update("online")
                     else:
-                        badge_health.update("● offline")
+                        badge_health.update("offline")
 
                 if workers:
                     leader = next((w for w in workers if w.get("role") == "Leader"), None)

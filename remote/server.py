@@ -525,21 +525,24 @@ class ClusterSupervisorHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": str(e)})
                 return
 
-        # 3. Model Deploy Endpoint (Admin Only)
+        # 3. Model Deploy Endpoint (Admin or Authenticated Member)
         if clean_path in ("/_cluster/deploy", "/_host_it/deploy"):
-            if role != "admin":
-                self._send_json(403, {"error": "Forbidden: Admin token required to deploy models."})
+            if not role:
+                self._send_unauthorized()
                 return
             try:
                 model_name = body_json.get("model", "")
                 if model_name:
                     cluster_state["active_model"] = model_name
-                    print(f"\n[DEPLOY] Model '{model_name}' deployment requested by admin.")
+                    print(f"\n[DEPLOY] Model '{model_name}' deployment requested by {role}.")
                     def _pull_worker():
                         print(f"[FETCH] Leader caching model '{model_name}' for cluster mesh...")
                         env = os.environ.copy()
                         env["OLLAMA_HOST"] = f"127.0.0.1:{INTERNAL_OLLAMA_PORT}"
-                        subprocess.run(["ollama", "pull", model_name], env=env, check=False)
+                        pull_target = model_name
+                        if "/" in model_name and not model_name.startswith("hf.co/"):
+                            pull_target = f"hf.co/{model_name}"
+                        subprocess.run(["ollama", "pull", pull_target], env=env, check=False)
                         print(f"[OK] Model '{model_name}' cached and ready on leader.")
                     threading.Thread(target=_pull_worker, daemon=True).start()
                     calculate_shards()
@@ -903,23 +906,22 @@ def main():
 
         start_heartbeat_watchdog()
 
-        print("\n" + "=" * 64)
-        print("          cluster LEADER CONTROL BOARD")
-        print("=" * 64)
-        print(f"Tunnel URL:        {tunnel_url}")
-        print(f"Cluster Capacity:  1 Leader + {expected_workers} Workers ({expected_workers + 1}x GPUs, ~{pooled_est_gb}GB Pooled VRAM)")
-        print("\n[1] WORKER JOIN COMMANDS (Run each in a blank notebook):")
+        print("\n" + "─" * 64)
+        print("cluster LEADER CONTROL BOARD")
+        print(f"Tunnel:   {tunnel_url}")
+        print(f"Capacity: 1 Leader + {expected_workers} Workers ({expected_workers + 1}x GPUs, ~{pooled_est_gb}GB Pooled VRAM)")
+        print("\n[1] WORKER JOIN COMMANDS (Run each in blank notebook):")
         for i in range(1, expected_workers + 1):
             w_name = f"notebook-{i}"
             cmd = f"!curl -fsSL https://raw.githubusercontent.com/berlin-566/cluster/main/worker.sh | bash -s -- --leader {tunnel_url} --token {cluster_state['worker_token']} --name {w_name}"
-            print(f"  {w_name}:\n    {cmd}\n")
+            print(f"  {w_name}: {cmd}")
 
-        print("[2] ADMIN / LEADER COMMAND (Run on your laptop):")
-        print(f"  cluster admin connect {tunnel_url} --token {cluster_state['admin_token']}\n")
+        print("\n[2] ADMIN / LEADER COMMAND (Run on your laptop):")
+        print(f"  cluster admin connect {tunnel_url} --token {cluster_state['admin_token']}")
 
-        print("[3] TEAM MEMBER COMMAND (Share with team for inference):")
-        print(f"  cluster connect {tunnel_url} --token {cluster_state['member_token']}\n")
-        print("=" * 64 + "\n")
+        print("\n[3] TEAM MEMBER COMMAND (Share with team for inference):")
+        print(f"  cluster connect {tunnel_url} --token {cluster_state['member_token']}")
+        print("─" * 64 + "\n")
 
     # Keepalive loop
     try:
